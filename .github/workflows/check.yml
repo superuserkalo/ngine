@@ -34,6 +34,20 @@ jobs:
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: Test
         run: cargo test --workspace --locked
+      - name: Agent docs stay small
+        shell: bash
+        run: |
+          lines=$(wc -l < AGENTS.md)
+          if [ "$lines" -gt 120 ]; then
+            echo "AGENTS.md is $lines lines; the budget is 120. Prune it."
+            exit 1
+          fi
+          extra=$(git ls-files docs | grep -v -E '^docs/(adr|agents)/' || true)
+          if [ -n "$extra" ]; then
+            echo "docs/ holds only docs/adr and docs/agents. Move these to an issue:"
+            echo "$extra"
+            exit 1
+          fi
       - name: Tests leave the checkout clean
         shell: bash
         run: git diff --exit-code && test -z "$(git status --porcelain)"

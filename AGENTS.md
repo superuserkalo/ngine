@@ -35,6 +35,10 @@ record the outcome in `docs/adr/`.
   in the smallest module that wraps it, mark that module
   `#![expect(unsafe_code, reason = "...")]`, give every block a `// SAFETY:`
   comment, and expose only a safe interface.
+- **No comments.** A test fails on any. Say it in code: rename, extract a
+  function, or encode the rule in a type or a test. Only three kinds stay: a
+  doc comment stating a public item's contract, `// SAFETY:`, and a constraint
+  forced by an OS, vendor or protocol that links its source with `https://`.
 - **Stay lightweight.** A new dependency needs a reason stated in the commit
   message. Compare `cargo tree` before and after. Pin it to an exact version
   (`"=1.2.3"`) and commit `Cargo.lock`.

@@ -35,10 +35,9 @@ record the outcome in `docs/adr/`.
   in the smallest module that wraps it, mark that module
   `#![expect(unsafe_code, reason = "...")]`, give every block a `// SAFETY:`
   comment, and expose only a safe interface.
-- **No comments.** A test fails on any. Say it in code: rename, extract a
-  function, or encode the rule in a type or a test. Only three kinds stay: a
-  doc comment stating a public item's contract, `// SAFETY:`, and a constraint
-  forced by an OS, vendor or protocol that links its source with `https://`.
+- **No comments.** Say it in code: rename, extract a function, or encode the
+  rule in a type or a test. The `no-comments` skill removes them and its
+  subagent lists the few kinds that stay.
 - **Stay lightweight.** A new dependency needs a reason stated in the commit
   message. Compare `cargo tree` before and after. Pin it to an exact version
   (`"=1.2.3"`) and commit `Cargo.lock`.
@@ -80,13 +79,14 @@ requests for the owner's and agents' own work.
 A milestone is the smallest change that works on its own. For each one:
 
 1. Make the change.
-2. Run the three checks.
-3. Fix any line of this file that the change made stale.
-4. Commit with explicit paths (`git add <path>...`, never `-A` or `.`). The
+2. If a `.rs` file changed, run the `no-comments` skill.
+3. Run the three checks.
+4. Fix any line of this file that the change made stale.
+5. Commit with explicit paths (`git add <path>...`, never `-A` or `.`). The
    subject is one plain sentence without a type prefix. Put the reason in the
    body when it is not obvious, and `Closes #n` when it finishes an issue.
-5. `git push origin main`.
-6. Check CI with `gh run list --limit 1` before the next push. If it is red,
+6. `git push origin main`.
+7. Check CI with `gh run list --limit 1` before the next push. If it is red,
    fix it in the next commit.
 
 Then start the next milestone. Do not wait to be asked to commit or push.
@@ -112,7 +112,7 @@ Triage labels: `needs-triage`, `needs-info`, `ready-for-agent`,
   rules and the loop. No history, status, dated notes or plans.
 - A rule belongs in a check before it belongs here. When a mistake happens
   twice, block it with a lint, a type or a test whose message names the fix.
-- Update it in step 3 of the loop, in the same commit as the change. Never run
+- Update it in step 4 of the loop, in the same commit as the change. Never run
   a separate documentation clean-up.
 - `docs/` holds only `docs/adr/` (one short file per decision) and
   `docs/agents/`. CI rejects anything else. Everything else goes in an issue.

@@ -1,0 +1,45 @@
+name: FFmpeg
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ffmpeg/**
+      - .github/actions/ffmpeg/**
+      - .github/workflows/ffmpeg.yml
+  pull_request:
+    paths:
+      - ffmpeg/**
+      - .github/actions/ffmpeg/**
+      - .github/workflows/ffmpeg.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ffmpeg-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ffmpeg:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: FFmpeg libraries
+        id: ffmpeg
+        uses: ./.github/actions/ffmpeg
+      - name: Visual Studio environment
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
+        with:
+          arch: x64
+      - name: Size, licence and encoders
+        shell: bash
+        run: ffmpeg/check.sh

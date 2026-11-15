@@ -1,0 +1,83 @@
+name: FFmpeg libraries
+description: >
+  Restores the trimmed FFmpeg libraries for this runner from the cache and
+  builds them with ffmpeg/build.sh only on a cache miss. Sets NGINE_FFMPEG_DIR.
+
+outputs:
+  dir:
+    description: The directory with lib/, include/, bin/ on Windows, licenses/ and manifest.json.
+    value: ${{ steps.target.outputs.dir }}
+  cache-hit:
+    description: Whether the libraries came from the cache.
+    value: ${{ steps.restore.outputs.cache-hit }}
+
+runs:
+  using: composite
+  steps:
+    - name: Target
+      id: target
+      shell: bash
+      run: |
+        case "$RUNNER_OS" in
+          Linux) triple=x86_64-unknown-linux-gnu ;;
+          macOS) triple=aarch64-apple-darwin ;;
+          Windows) triple=x86_64-pc-windows-msvc ;;
+        esac
+        echo "triple=$triple" >> "$GITHUB_OUTPUT"
+        echo "image=${ImageOS:-unknown}" >> "$GITHUB_OUTPUT"
+        echo "dir=$GITHUB_WORKSPACE/target/ffmpeg/$triple" >> "$GITHUB_OUTPUT"
+
+    - name: Restore FFmpeg
+      id: restore
+      uses: actions/cache/restore@v6.1.0
+      with:
+        path: target/ffmpeg/${{ steps.target.outputs.triple }}
+        key: ffmpeg-${{ steps.target.outputs.triple }}-${{ steps.target.outputs.image }}-${{ hashFiles('ffmpeg/**') }}
+
+    - name: Linux build tools
+      if: steps.restore.outputs.cache-hit != 'true' && runner.os == 'Linux'
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends nasm meson ninja-build libdrm-dev pkg-config cmake
+
+    - name: macOS build tools
+      if: steps.restore.outputs.cache-hit != 'true' && runner.os == 'macOS'
+      shell: bash
+      run: command -v pkg-config >/dev/null || brew install pkgconf
+
+    - name: Visual Studio environment
+      if: steps.restore.outputs.cache-hit != 'true' && runner.os == 'Windows'
+      uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
+      with:
+        arch: x64
+
+    - name: MSYS2
+      if: steps.restore.outputs.cache-hit != 'true' && runner.os == 'Windows'
+      uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e # v2.33.0
+      with:
+        msystem: MSYS
+        path-type: inherit
+        release: false
+        install: make nasm pkgconf diffutils
+
+    - name: Build FFmpeg
+      if: steps.restore.outputs.cache-hit != 'true' && runner.os != 'Windows'
+      shell: bash
+      run: env -u NGINE_FFMPEG_DIR ffmpeg/build.sh
+
+    - name: Build FFmpeg on Windows
+      if: steps.restore.outputs.cache-hit != 'true' && runner.os == 'Windows'
+      shell: msys2 {0}
+      run: env -u NGINE_FFMPEG_DIR ffmpeg/build.sh
+
+    - name: Save FFmpeg
+      if: steps.restore.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v6.1.0
+      with:
+        path: target/ffmpeg/${{ steps.target.outputs.triple }}
+        key: ${{ steps.restore.outputs.cache-primary-key }}
+
+    - name: Export NGINE_FFMPEG_DIR
+      shell: bash
+      run: echo "NGINE_FFMPEG_DIR=${{ steps.target.outputs.dir }}" >> "$GITHUB_ENV"

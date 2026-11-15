@@ -1,11 +1,29 @@
-# Rust build output
+# Rust
 target/
+**/*.rs.bk
+*.pdb
 
-# Agent and local working files
-.scratch/
-artifacts/
-.claude/worktrees/
-.claude/settings.local.json
+# Profiling and coverage
+*.profraw
+*.profdata
+perf.data*
+flamegraph.svg
+lcov.info
+coverage/
+tarpaulin-report.*
+
+# Packaging output
+dist/
+*.dmg
+*.pkg
+*.msi
+*.exe
+*.AppImage
+*.deb
+*.rpm
+*.flatpak
+*.zip
+*.tar.gz
 
 # Recordings and clips: never commit captured media
 *.mp4
@@ -15,21 +33,74 @@ artifacts/
 *.avi
 *.flv
 *.m4a
+*.m4v
+*.aac
+*.opus
 *.wav
+*.yuv
+*.h264
+*.h265
 
 # Secrets and local configuration
 .env
 .env.*
 !.env.example
-*.key
+.envrc
+.direnv/
 *.pem
+*.key
+*.p8
 *.p12
+*.pfx
+*.cer
+*.crt
+*.jks
+*.keystore
+*.mobileprovision
+*.provisionprofile
+*.certSigningRequest
 
-# Editors and operating systems
-.DS_Store
-Thumbs.db
-desktop.ini
+# Agent and local working files
+.scratch/
+artifacts/
+.claude/worktrees/
+.claude/settings.local.json
+.codex/
+.cursor/
+.commandcode/
+.superpowers/
+.playwright-mcp/
+
+# Logs and crash dumps
+*.log
+*.dmp
+*.stackdump
+crash-*.txt
+
+# Editors
 .vscode/
 .idea/
+*.iml
 *.swp
-*.log
+*.swo
+*~
+.zed/
+.fleet/
+
+# macOS
+.DS_Store
+.AppleDouble
+._*
+
+# Windows
+Thumbs.db
+ehthumbs.db
+desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+.directory
+.Trash-*
+
+# Node, in case a website is added later
+node_modules/

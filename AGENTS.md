@@ -45,7 +45,8 @@ record the outcome in `docs/adr/`.
 - **Never lose a recording.** A failure during capture or encoding must leave
   the bytes already written playable.
 - **Add a crate only when a concrete responsibility needs its own boundary.**
-- **Do not weaken a lint or a test to make it pass.**
+- **Do not weaken a lint or a test to make it pass.** Suppress one only with
+  `#[expect(..., reason = "...")]`.
 
 ## Checks
 
@@ -53,9 +54,11 @@ record the outcome in `docs/adr/`.
 cargo fmt --all --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
+cargo deny check    # when dependencies change; needs cargo-deny installed
 ```
 
-CI runs the same on Linux, macOS and Windows.
+CI runs the same on Linux, macOS and Windows. Lints live in `Cargo.toml`,
+banned APIs in `clippy.toml`, allowed licences and sources in `deny.toml`.
 
 - Tests need no display, GPU, audio device, network or screen-recording
   permission. A test that does is marked `#[ignore]` with the reason.
@@ -103,6 +106,8 @@ Triage labels: `needs-triage`, `needs-info`, `ready-for-agent`,
 - Budget: 120 lines. CI fails above it. To add a line, cut or tighten another.
 - Keep only what code, `git log` and issues cannot tell an agent: decisions,
   rules and the loop. No history, status, dated notes or plans.
+- A rule belongs in a check before it belongs here. When a mistake happens
+  twice, block it with a lint, a type or a test whose message names the fix.
 - Update it in step 3 of the loop, in the same commit as the change. Never run
   a separate documentation clean-up.
 - `docs/` holds only `docs/adr/` (one short file per decision) and

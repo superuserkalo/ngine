@@ -1,0 +1,39 @@
+name: Bug report
+description: Something in the app misbehaves
+labels: [bug, needs-triage]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did you do, what did the app do, and what did you expect instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open ...
+        2. Click ...
+        3. ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: App version or commit
+    validations:
+      required: true
+  - type: input
+    id: system
+    attributes:
+      label: Operating system and GPU
+      placeholder: Windows 11 24H2, NVIDIA RTX 4070
+    validations:
+      required: true
+  - type: textarea
+    id: source
+    attributes:
+      label: What you were recording
+      description: The game or app, whether it was full screen or windowed, and the resolution and frame rate. Leave out anything private.

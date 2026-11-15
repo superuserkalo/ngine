@@ -14,8 +14,10 @@ finished.
 - The UI is [Rune](https://github.com/anomalyco/rune) at one pinned git
   revision ([ADR 0001](docs/adr/0001-rune-for-the-ui.md)). No web view. To
   update it, give `rune` and every `[patch.crates-io]` entry the same `rev`.
-- MIT licence. A dependency whose licence restricts that, such as a GPL build
-  of FFmpeg, needs the owner's OK.
+- MIT licence. A dependency whose licence restricts that needs the owner's OK.
+- Encoding and the MP4 container use a trimmed LGPL FFmpeg, bundled as shared
+  libraries with nothing GPL in it ([ADR 0003](docs/adr/0003-ffmpeg.md)).
+  Recording is SDR.
 - Capture is a crate of our own over one safe crate per operating system
   ([ADR 0002](docs/adr/0002-capture.md)). It never touches another process.
 
@@ -24,8 +26,6 @@ finished.
 Do not settle these as a side effect of another task. Ask the owner, then
 record the outcome in `docs/adr/`.
 
-- **Encoding and container:** the operating system's hardware encoders, or a
-  bundled FFmpeg.
 - **Audio:** which sources, and how they stay in sync with video.
 - **Instant replay:** whether ngine keeps the last minutes in memory.
 

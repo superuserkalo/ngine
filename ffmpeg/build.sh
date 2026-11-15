@@ -230,7 +230,7 @@ platform_flags() {
       platform=(
         --extra-cflags="-I$prefix/include"
         --extra-ldflags="-L$prefix/lib"
-        "--extra-ldsoflags=-Wl,-rpath,'\$\$ORIGIN'"
+        "--extra-ldsoflags=-Wl,-rpath,'\\\$\\\$ORIGIN'"
         --enable-vaapi
         --enable-vulkan
         --enable-ffnvcodec
@@ -295,11 +295,14 @@ configure_ffmpeg() {
     esac
   done
   mkdir -p "$builds/ffmpeg"
-  (
+  if ! (
     cd "$builds/ffmpeg"
     PKG_CONFIG_PATH="$prefix/lib/pkgconfig" "$sources/ffmpeg/configure" \
       --prefix="$ffmpeg_dir" "${configure_flags[@]}"
-  ) | tee "$work_dir/configure.log"
+  ) | tee "$work_dir/configure.log"; then
+    tail -n 80 "$builds/ffmpeg/ffbuild/config.log" >&2
+    die "FFmpeg's configure failed"
+  fi
   local licence
   licence=$(sed -n 's/^License: //p' "$work_dir/configure.log")
   [ "$licence" = "LGPL version 2.1 or later" ] ||

@@ -5,7 +5,7 @@ members = ["crates/*"]
 [workspace.package]
 version = "0.0.0"
 edition = "2024"
-rust-version = "1.96"
+rust-version = "1.99"
 license = "MIT"
 repository = "https://github.com/superuserkalo/ngine"
 publish = false
@@ -30,6 +30,19 @@ undocumented_unsafe_blocks = "warn"
 unimplemented = "warn"
 unused_result_ok = "warn"
 unwrap_used = "warn"
+
+[patch.crates-io]
+accesskit_macos = { git = "https://github.com/anomalyco/rune", rev = "80022c59736b9ef48c2b6954ba29bafbc78ae428" }
+accesskit_windows = { git = "https://github.com/anomalyco/rune", rev = "80022c59736b9ef48c2b6954ba29bafbc78ae428" }
+parley_engine = { git = "https://github.com/anomalyco/rune", rev = "80022c59736b9ef48c2b6954ba29bafbc78ae428" }
+wgpu-hal = { git = "https://github.com/anomalyco/rune", rev = "80022c59736b9ef48c2b6954ba29bafbc78ae428" }
+winit = { git = "https://github.com/anomalyco/rune", rev = "80022c59736b9ef48c2b6954ba29bafbc78ae428" }
+
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
 
 [profile.release]
 codegen-units = 1

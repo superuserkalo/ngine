@@ -1,8 +1,21 @@
 [graph]
 all-features = true
+targets = [
+    "aarch64-apple-darwin",
+    "x86_64-apple-darwin",
+    "x86_64-pc-windows-msvc",
+    "aarch64-pc-windows-msvc",
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+]
 
 [advisories]
 yanked = "deny"
+ignore = [
+    { id = "RUSTSEC-2026-0370", reason = "zvariant is marked unmaintained with no replacement; it comes through Rune's Linux accessibility and D-Bus support" },
+    { id = "RUSTSEC-2026-0371", reason = "zbus_names is marked unmaintained with no replacement; it comes through Rune's Linux accessibility and D-Bus support" },
+    { id = "RUSTSEC-2026-0372", reason = "zvariant_derive is marked unmaintained with no replacement; it comes through Rune's Linux accessibility and D-Bus support" },
+]
 
 [licenses]
 allow = [
@@ -11,6 +24,7 @@ allow = [
     "Apache-2.0 WITH LLVM-exception",
     "BSD-2-Clause",
     "BSD-3-Clause",
+    "BSL-1.0",
     "ISC",
     "Unicode-3.0",
     "Zlib",
@@ -24,3 +38,4 @@ allow-wildcard-paths = true
 [sources]
 unknown-registry = "deny"
 unknown-git = "deny"
+allow-git = ["https://github.com/anomalyco/rune"]

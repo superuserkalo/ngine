@@ -3,14 +3,17 @@
 ngine is a free, open-source screen recorder and clipper for Windows, macOS and
 Linux, written in Rust. Being lightweight is the point of the product.
 
-**Status: scaffold.** The binary prints its name and version. Nothing captures,
-encodes, or opens a window yet. Never describe planned work as finished.
+**Status: an empty window.** The app opens a window that shows its name and
+version. Nothing captures or encodes yet. Never describe planned work as
+finished.
 
 ## Decided
 
 - One Rust codebase for all three operating systems. A feature is done when it
   works on each, or the README states the gap.
-- The UI is drawn natively on the GPU by a Rust crate. No web view.
+- The UI is [Rune](https://github.com/anomalyco/rune) at one pinned git
+  revision ([ADR 0001](docs/adr/0001-rune-for-the-ui.md)). No web view. To
+  update it, give `rune` and every `[patch.crates-io]` entry the same `rev`.
 - MIT licence. A dependency whose licence restricts that, such as a GPL build
   of FFmpeg, needs the owner's OK.
 
@@ -19,8 +22,6 @@ encodes, or opens a window yet. Never describe planned work as finished.
 Do not settle these as a side effect of another task. Ask the owner, then
 record the outcome in `docs/adr/`.
 
-- **UI crate:** [gpui](https://crates.io/crates/gpui) or
-  [Rune](https://github.com/anomalyco/rune).
 - **Capture:** ScreenCaptureKit, Windows.Graphics.Capture and PipeWire through
   xdg-desktop-portal, called directly or through a crate.
 - **Encoding and container:** the operating system's hardware encoders, or a
@@ -69,7 +70,8 @@ banned APIs in `clippy.toml`, allowed licences and sources in `deny.toml`.
 - A bug fix comes with a regression test that fails without the fix.
 - Say which operating systems you ran on. CI proves that code compiles, not
   that capture works. Behaviour on an OS nobody ran is unverified.
-- For a UI change, launch the app and look at it before reporting.
+- For a UI change, render it headless into `.scratch/` and look at it:
+  `cargo run -- --snap out.png`, or `--tree out.json` for the element tree.
 
 ## The loop
 

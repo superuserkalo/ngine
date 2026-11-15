@@ -17,7 +17,9 @@ to people and to coding agents alike. This file covers how to get started.
 ## Setting up
 
 Install [rustup](https://rustup.rs). The Rust version is pinned in
-`rust-toolchain.toml` and rustup installs it on first use.
+`rust-toolchain.toml` and rustup installs it on first use. On Linux, also
+install `libxkbcommon-dev` and `libwayland-dev`, or your distribution's
+equivalents.
 
 ```sh
 git clone https://github.com/superuserkalo/ngine.git

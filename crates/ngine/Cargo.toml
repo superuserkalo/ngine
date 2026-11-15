@@ -8,5 +8,8 @@ license.workspace = true
 repository.workspace = true
 publish.workspace = true
 
+[dependencies]
+rune = { git = "https://github.com/anomalyco/rune", rev = "80022c59736b9ef48c2b6954ba29bafbc78ae428", default-features = false, features = ["accessibility", "dbus", "embedded-fonts", "metal-backend", "svg"] }
+
 [lints]
 workspace = true

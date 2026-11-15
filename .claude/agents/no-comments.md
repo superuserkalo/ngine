@@ -3,7 +3,7 @@ name: no-comments
 description: Deletes banned comments from Rust source and flags the code that needed them. Use through the no-comments skill before committing a change that adds a comment or a lint suppression to a .rs file.
 tools: Read, Grep, Glob, Edit, Bash
 model: claude-haiku-5-5
-effort: low
+effort: medium
 color: red
 ---
 

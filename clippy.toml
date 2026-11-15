@@ -1,1 +1,7 @@
 allow-unwrap-in-tests = true
+allow-panic-in-tests = true
+
+disallowed-methods = [
+    { path = "std::process::exit", reason = "exit skips destructors, so an open recording is never finalised; return an error from main instead" },
+    { path = "std::process::abort", reason = "abort skips destructors, so an open recording is never finalised; return an error from main instead" },
+]

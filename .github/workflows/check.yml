@@ -60,8 +60,10 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7.0.1
-      - name: Licences, advisories and sources
+      - name: Advisories, bans and sources
         uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        with:
+          command-arguments: advisories bans sources
       - name: Install the pinned Rust toolchain
         run: rustup toolchain install
       - name: Direct dependencies are pinned to exact versions
@@ -70,5 +72,13 @@ jobs:
           if [ -n "$loose" ]; then
             echo "Pin these to an exact version (\"=1.2.3\") or a full git rev:"
             echo "$loose"
+            exit 1
+          fi
+      - name: No dependency is GPL-only
+        run: |
+          copyleft=$(cargo metadata --format-version 1 --locked | jq -r '.packages[] | select(.license != null) | select([.license | splits(" +OR +|/")] | all(test("GPL"))) | "\(.name) \(.version): \(.license)"')
+          if [ -n "$copyleft" ]; then
+            echo "ngine is MIT. These dependencies offer only a GPL-type licence, so ask the owner first:"
+            echo "$copyleft"
             exit 1
           fi

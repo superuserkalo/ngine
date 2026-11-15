@@ -56,11 +56,12 @@ settle one as a side effect of another task. Ask, then record it in `docs/adr/`.
 cargo fmt --all --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
-cargo deny check    # when dependencies change; needs cargo-deny installed
+cargo deny check advisories bans sources    # when dependencies change
 ```
 
 CI runs the same on Linux, macOS and Windows. Lints live in `Cargo.toml`,
-banned APIs in `clippy.toml`, allowed licences and sources in `deny.toml`.
+banned APIs in `clippy.toml`, allowed sources in `deny.toml`. Any licence is
+fine except a GPL-type one, which CI rejects.
 
 - Tests need no display, GPU, audio device, network or screen-recording
   permission. A test that does is marked `#[ignore]` with the reason.

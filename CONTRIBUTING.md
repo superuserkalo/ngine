@@ -10,8 +10,8 @@ to people and to coding agents alike. This file covers how to get started.
 
 - For a bug, open an issue with your operating system, GPU, the version or
   commit, and the smallest steps that reproduce it.
-- For a feature, open an issue first. Several large choices are still open and
-  are listed under "Not decided" in [AGENTS.md](AGENTS.md).
+- For a feature, open an issue first. The large choices already made are listed
+  under "Decided" in [AGENTS.md](AGENTS.md), with the reasons in `docs/adr/`.
 - For a typo or a small fix, just send the pull request.
 
 ## Setting up

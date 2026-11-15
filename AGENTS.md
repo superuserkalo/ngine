@@ -21,13 +21,11 @@ finished.
   source ([ADR 0004](docs/adr/0004-audio.md)).
 - Capture is a crate of our own over one safe crate per operating system
   ([ADR 0002](docs/adr/0002-capture.md)). It never touches another process.
+- Instant replay keeps encoded video in memory up to a budget, then on disk
+  ([ADR 0005](docs/adr/0005-instant-replay.md)).
 
-## Not decided
-
-Do not settle these as a side effect of another task. Ask the owner, then
-record the outcome in `docs/adr/`.
-
-- **Instant replay:** whether ngine keeps the last minutes in memory.
+A choice that changes what the product does or ships is the owner's. Do not
+settle one as a side effect of another task. Ask, then record it in `docs/adr/`.
 
 ## Code rules
 

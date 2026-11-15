@@ -16,14 +16,14 @@ finished.
   update it, give `rune` and every `[patch.crates-io]` entry the same `rev`.
 - MIT licence. A dependency whose licence restricts that, such as a GPL build
   of FFmpeg, needs the owner's OK.
+- Capture is a crate of our own over one safe crate per operating system
+  ([ADR 0002](docs/adr/0002-capture.md)). It never touches another process.
 
 ## Not decided
 
 Do not settle these as a side effect of another task. Ask the owner, then
 record the outcome in `docs/adr/`.
 
-- **Capture:** ScreenCaptureKit, Windows.Graphics.Capture and PipeWire through
-  xdg-desktop-portal, called directly or through a crate.
 - **Encoding and container:** the operating system's hardware encoders, or a
   bundled FFmpeg.
 - **Audio:** which sources, and how they stay in sync with video.

@@ -74,8 +74,9 @@ fine except a GPL-type one, which CI rejects.
 
 ## The loop
 
-Trunk-based: every change lands on `main`. No branches, worktrees or pull
-requests for the owner's and agents' own work.
+Trunk-based: every change lands on `main`, with no pull requests for the
+owner's and agents' own work. Agents working in parallel may each use a
+temporary worktree; whoever coordinates them lands the work on `main`.
 
 A milestone is the smallest change that works on its own. For each one:
 

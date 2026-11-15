@@ -1,0 +1,22 @@
+[package]
+name = "rune-spike"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+rune = { git = "https://github.com/anomalyco/rune", rev = "80022c59736b9ef48c2b6954ba29bafbc78ae428", features = ["tooling"] }
+
+[patch.crates-io]
+winit = { git = "https://github.com/anomalyco/rune", rev = "80022c59736b9ef48c2b6954ba29bafbc78ae428" }
+parley_engine = { git = "https://github.com/anomalyco/rune", rev = "80022c59736b9ef48c2b6954ba29bafbc78ae428" }
+wgpu-hal = { git = "https://github.com/anomalyco/rune", rev = "80022c59736b9ef48c2b6954ba29bafbc78ae428" }
+accesskit_windows = { git = "https://github.com/anomalyco/rune", rev = "80022c59736b9ef48c2b6954ba29bafbc78ae428" }
+accesskit_macos = { git = "https://github.com/anomalyco/rune", rev = "80022c59736b9ef48c2b6954ba29bafbc78ae428" }
+
+[profile.release]
+codegen-units = 1
+lto = "thin"
+strip = true

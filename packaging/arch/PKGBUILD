@@ -1,0 +1,37 @@
+# Maintainer: ngine contributors
+
+pkgname=ngine
+pkgver=0.0.0
+pkgrel=1
+pkgdesc='A lightweight screen recorder and clipper'
+arch=('x86_64')
+url='https://github.com/superuserkalo/ngine'
+license=('MIT' 'LGPL-2.1-or-later' 'BSD-3-Clause' 'BSD-2-Clause')
+depends=('gcc-libs' 'glibc' 'libdrm' 'libxkbcommon' 'pipewire' 'vulkan-icd-loader' 'wayland' 'xdg-desktop-portal' 'hicolor-icon-theme')
+makedepends=('cargo' 'clang' 'cmake' 'curl' 'git' 'jq' 'meson' 'nasm' 'ninja' 'patchelf' 'pkgconf')
+optdepends=(
+  'libva-mesa-driver: hardware encoding on AMD graphics'
+  'intel-media-driver: hardware encoding on Intel graphics'
+  'nvidia-utils: hardware encoding on NVIDIA graphics'
+  'libx11: X11 sessions'
+)
+options=('!lto' '!debug' '!strip')
+source=("$pkgname::git+$url.git#tag=v$pkgver")
+sha256sums=('SKIP')
+
+prepare() {
+  cd "$pkgname"
+  cargo fetch --locked --target "$(rustc -vV | sed -n 's/^host: //p')"
+}
+
+build() {
+  cd "$pkgname"
+  export CARGO_TARGET_DIR=target
+  env -u NGINE_FFMPEG_DIR ffmpeg/build.sh
+  cargo build --frozen --release -p ngine
+}
+
+package() {
+  cd "$pkgname"
+  CARGO_TARGET_DIR=target NGINE_DIST="$srcdir/dist" packaging/linux.sh install "$pkgdir" /usr
+}

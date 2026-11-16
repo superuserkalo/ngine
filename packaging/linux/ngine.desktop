@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=ngine
+GenericName=Screen Recorder
+Comment=Record your screen and cut the parts worth keeping into clips
+Exec=ngine
+Icon=ngine
+Terminal=false
+Categories=AudioVideo;Video;Recorder;
+Keywords=screen;recorder;record;clip;capture;replay;

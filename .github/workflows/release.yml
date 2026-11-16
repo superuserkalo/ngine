@@ -1,0 +1,189 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Version
+        id: version
+        run: |
+          version=$(cargo metadata --format-version 1 --no-deps --locked | jq -r '.packages[] | select(.name == "ngine") | .version')
+          if [ "$GITHUB_REF_TYPE" = tag ] && [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "The tag $GITHUB_REF_NAME does not match the workspace version $version. Set version = \"${GITHUB_REF_NAME#v}\" in Cargo.toml, or tag v$version."
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  macos:
+    needs: version
+    runs-on: macos-latest
+    timeout-minutes: 60
+    env:
+      MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+      MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+      MACOS_SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Install the pinned Rust toolchain
+        run: rustup toolchain install
+      - name: FFmpeg libraries
+        uses: ./.github/actions/ffmpeg
+      - name: Build
+        run: cargo build --release --locked -p ngine
+      - name: Import the Developer ID certificate (only with signing secrets)
+        if: env.MACOS_CERTIFICATE != ''
+        run: |
+          keychain=$RUNNER_TEMP/signing.keychain-db
+          keychain_password=$(openssl rand -hex 16)
+          echo "$MACOS_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 3600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$RUNNER_TEMP/certificate.p12" -P "$MACOS_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$keychain"
+          security set-key-partition-list -S apple-tool:,apple: -k "$keychain_password" "$keychain"
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          rm "$RUNNER_TEMP/certificate.p12"
+          echo "NGINE_MACOS_SIGN_IDENTITY=$MACOS_SIGN_IDENTITY" >> "$GITHUB_ENV"
+      - name: Package
+        run: packaging/macos.sh
+      - name: Notarise (only with Apple ID secrets)
+        if: env.MACOS_CERTIFICATE != '' && env.APPLE_ID != ''
+        run: |
+          dmg=$(ls dist/*.dmg)
+          xcrun notarytool submit "$dmg" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD" --wait
+          xcrun stapler staple "$dmg"
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: macos
+          path: dist/*.dmg
+          if-no-files-found: error
+
+  windows:
+    needs: version
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    env:
+      WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+      WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+      RUSTFLAGS: -C target-feature=+crt-static
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Install the pinned Rust toolchain
+        run: rustup toolchain install
+      - name: FFmpeg libraries
+        uses: ./.github/actions/ffmpeg
+      - name: Windows finds libclang
+        run: echo "LIBCLANG_PATH=C:\\Program Files\\LLVM\\bin" >> "$GITHUB_ENV"
+      - name: Build
+        run: cargo build --release --locked -p ngine
+      - name: Inno Setup
+        run: |
+          if [ ! -x "/c/Program Files (x86)/Inno Setup 6/ISCC.exe" ]; then
+            choco install innosetup --no-progress -y
+          fi
+      - name: Load the code-signing certificate (only with signing secrets)
+        if: env.WINDOWS_CERTIFICATE != ''
+        run: |
+          echo "$WINDOWS_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/certificate.pfx"
+          echo "NGINE_WINDOWS_CERTIFICATE=$RUNNER_TEMP/certificate.pfx" >> "$GITHUB_ENV"
+          echo "NGINE_WINDOWS_CERTIFICATE_PASSWORD=$WINDOWS_CERTIFICATE_PASSWORD" >> "$GITHUB_ENV"
+      - name: Package
+        run: packaging/windows.sh
+      - name: Remove the certificate
+        if: always() && env.WINDOWS_CERTIFICATE != ''
+        run: rm -f "$RUNNER_TEMP/certificate.pfx"
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: windows
+          path: |
+            dist/*.zip
+            dist/*-setup.exe
+          if-no-files-found: error
+
+  linux:
+    needs: version
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Shell scripts pass shellcheck
+        run: shellcheck --version && shellcheck -x -P SCRIPTDIR packaging/*.sh
+      - name: Linux build packages
+        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libwayland-dev libclang-dev clang pkg-config libpipewire-0.3-dev patchelf
+      - name: Install the pinned Rust toolchain
+        run: rustup toolchain install
+      - name: FFmpeg libraries
+        uses: ./.github/actions/ffmpeg
+      - name: Build
+        run: cargo build --release --locked -p ngine
+      - name: Package
+        run: packaging/linux.sh
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: linux
+          path: |
+            dist/*.AppImage
+            dist/PKGBUILD
+          if-no-files-found: error
+
+  publish:
+    needs: [version, macos, windows, linux]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8.0.2
+        with:
+          path: release
+          merge-multiple: true
+      - name: Checksums
+        working-directory: release
+        run: |
+          sha256sum -- * > SHA256SUMS
+          cat SHA256SUMS
+          ls -la
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: release
+          path: release/
+          if-no-files-found: error
+      - name: Publish the GitHub release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          prerelease=()
+          case $VERSION in 0.*|*-*) prerelease=(--prerelease) ;; esac
+          gh release create "$GITHUB_REF_NAME" release/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --title "ngine $VERSION" \
+            --generate-notes \
+            "${prerelease[@]}"

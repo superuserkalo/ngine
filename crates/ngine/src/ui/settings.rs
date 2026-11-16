@@ -824,7 +824,12 @@ pub fn sheet(ui: &mut Ui<'_>) {
         reset_question(ui, asked);
     }
     let floating = ui.layer.split_off(start);
-    let width = (ui.window.0 - 2.0 * SHEET_MARGIN).clamp(1.0, WIDEST_SHEET);
+    let centred = (ui.window.0 - 2.0 * SHEET_MARGIN).clamp(1.0, WIDEST_SHEET);
+    let width = if (ui.window.0 - centred) / 2.0 < ui.sidebar_width() + space::S2 {
+        (ui.window.0 - 2.0 * space::S2).max(1.0)
+    } else {
+        centred
+    };
     let top = super::TITLEBAR.max(SHEET_MARGIN);
     let height = (ui.window.1 - top - SHEET_MARGIN / 2.0).clamp(1.0, TALLEST_SHEET);
     let list_width = if width < 760.0 {

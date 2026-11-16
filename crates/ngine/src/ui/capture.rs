@@ -563,7 +563,7 @@ fn audio_row(p: &Paint, narrow: bool, meter_width: f32, audio: AudioRow) -> El {
 }
 
 fn audio(ui: &mut Ui<'_>) -> El {
-    let narrow = ui.content_width() < 600.0;
+    let narrow = ui.content_width() < 560.0;
     let metered = ui.app.status.levels.is_some();
     let meter_width = if ui.content_width() < SHORT_METERS_BELOW {
         SHORT_METER_WIDTH

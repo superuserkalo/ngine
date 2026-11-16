@@ -531,7 +531,8 @@ fn header(p: &Paint, editor: &Editor, keys_open: bool) -> El {
                 .icon(&icons::ARROW_LEFT)
                 .look(Look::Quiet)
                 .help("Back to the library (Esc)")
-                .build(p, Ngine::close_editor),
+                .build(p, Ngine::close_editor)
+                .ml(-space::S3),
         )
         .child(
             text(editor.name.clone())

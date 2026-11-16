@@ -22,9 +22,11 @@ mod linux;
 mod macos;
 mod options;
 mod session;
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+mod supervisor;
 mod target;
 mod time;
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", test))]
 mod windows;
 
 pub use audio::{AudioBuffer, AudioSource};

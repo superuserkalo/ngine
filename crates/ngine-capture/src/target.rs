@@ -1,7 +1,7 @@
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 use std::any::Any;
 use std::fmt;
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 use std::sync::Arc;
 
 use crate::frame::Size;
@@ -126,7 +126,7 @@ pub enum TargetKind {
     Picked,
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 #[derive(Clone)]
 pub(crate) struct PickedHandle {
     pub(crate) kind: TargetKind,
@@ -140,7 +140,7 @@ pub(crate) enum TargetSource {
     Screen(Screen),
     Window(Window),
     App(App),
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     Picked(PickedHandle),
 }
 
@@ -155,7 +155,7 @@ pub struct Target {
 }
 
 impl Target {
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     pub(crate) fn picked(handle: PickedHandle) -> Self {
         Self {
             audio_app: handle.audio_app.clone(),
@@ -163,7 +163,7 @@ impl Target {
         }
     }
 
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     pub(crate) fn source(&self) -> &TargetSource {
         &self.source
     }
@@ -173,7 +173,7 @@ impl Target {
             TargetSource::Screen(_) => TargetKind::Screen,
             TargetSource::Window(_) => TargetKind::Window,
             TargetSource::App(_) => TargetKind::App,
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", target_os = "windows"))]
             TargetSource::Picked(handle) => handle.kind,
         }
     }
@@ -183,7 +183,7 @@ impl Target {
             TargetSource::Screen(screen) => &screen.name,
             TargetSource::Window(window) => &window.title,
             TargetSource::App(app) => &app.name,
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", target_os = "windows"))]
             TargetSource::Picked(handle) => &handle.label,
         }
     }

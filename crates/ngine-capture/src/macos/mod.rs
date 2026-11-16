@@ -2,7 +2,6 @@ mod audio;
 mod content;
 mod convert;
 mod stream;
-mod supervisor;
 mod surface;
 
 use std::sync::Arc;

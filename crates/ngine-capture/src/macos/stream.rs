@@ -15,7 +15,6 @@ use screencapturekit::stream::output_type::SCStreamOutputType;
 use screencapturekit::stream::{ErrorHandler, SCStream};
 
 use super::content::{self, Sound};
-use super::supervisor::{self, Launch, Signal, Supervised, Supervisee};
 use super::surface::CoreVideoSurface;
 use super::{audio, convert};
 use crate::audio::AudioSource;
@@ -23,6 +22,7 @@ use crate::error::CaptureError;
 use crate::frame::{PixelFormat, Size, Surface, VideoFrame};
 use crate::options::{Microphone, SessionOptions, SystemAudio};
 use crate::session::{EventSink, RunningCapture};
+use crate::supervisor::{self, Launch, Signal, Supervised, Supervisee};
 use crate::target::Target;
 use crate::time::Timestamp;
 

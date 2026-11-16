@@ -1,30 +1,68 @@
-use std::ffi::c_void;
+#[cfg(target_os = "windows")]
+mod audio;
+mod clock;
+#[cfg(target_os = "windows")]
+mod content;
+mod convert;
+#[cfg(target_os = "windows")]
+mod picker;
+#[cfg(target_os = "windows")]
+mod stream;
+#[cfg(target_os = "windows")]
+mod surface;
 
-use crate::error::CaptureError;
-use crate::frame::CpuFrame;
+#[cfg(target_os = "windows")]
+pub use self::surface::D3d11Surface;
+#[cfg(target_os = "windows")]
+pub(crate) use self::system::WindowsBackend;
 
-#[derive(Clone, Copy, Debug)]
-enum NoBackendYet {}
+#[cfg(target_os = "windows")]
+mod system {
+    use super::{audio, content, picker, stream};
+    use crate::backend::{Backend, ListAudioApps, ListTargets, PickDone, PickTarget};
+    use crate::error::CaptureError;
+    use crate::options::SessionOptions;
+    use crate::session::{EventSink, RunningCapture};
+    use crate::target::{MicrophoneDevice, PickerOptions, Target, Targets};
 
-#[derive(Clone, Debug)]
-pub struct D3d11Surface {
-    texture: NoBackendYet,
-}
+    pub(crate) struct WindowsBackend;
 
-impl D3d11Surface {
-    /// The `ID3D11Texture2D` pointer, never null. It stays valid while this
-    /// surface or a clone of it is alive. Call `AddRef` on it to keep it for
-    /// longer.
-    pub fn texture_ptr(&self) -> *mut c_void {
-        match self.texture {}
+    impl ListTargets for WindowsBackend {
+        fn targets(&self) -> Result<Targets, CaptureError> {
+            content::list()
+        }
     }
 
-    /// The array slice of the texture that holds this frame.
-    pub fn subresource_index(&self) -> u32 {
-        match self.texture {}
+    impl PickTarget for WindowsBackend {
+        fn pick(&self, _options: PickerOptions, done: PickDone) {
+            picker::pick(done);
+        }
     }
 
-    pub(crate) fn to_cpu(&self) -> Result<CpuFrame, CaptureError> {
-        match self.texture {}
+    impl Backend for WindowsBackend {
+        fn target_lister(&self) -> Option<&dyn ListTargets> {
+            Some(self)
+        }
+
+        fn target_picker(&self) -> Option<&dyn PickTarget> {
+            Some(self)
+        }
+
+        fn audio_app_lister(&self) -> Option<&dyn ListAudioApps> {
+            None
+        }
+
+        fn microphones(&self) -> Result<Vec<MicrophoneDevice>, CaptureError> {
+            audio::microphones()
+        }
+
+        fn start(
+            &self,
+            target: &Target,
+            options: &SessionOptions,
+            sink: EventSink,
+        ) -> Result<Box<dyn RunningCapture>, CaptureError> {
+            stream::start(target, options, sink)
+        }
     }
 }

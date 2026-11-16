@@ -129,7 +129,7 @@ impl VideoFrame {
         }
     }
 
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     pub(crate) fn from_surface(
         timestamp: Timestamp,
         size: Size,

@@ -31,6 +31,9 @@ show_runtime_dependencies() {
       windows) dumpbin -nologo -dependents "$library" | awk '/\.dll$/ && !/Dump of file/ { print "    " $1 }' ;;
     esac
   done < <(shared_libraries)
+  if [ "$os" = linux ]; then
+    echo "Newest glibc symbol version needed: $(shared_libraries | xargs objdump -T | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -n 1)"
+  fi
 }
 
 check_relocatable() {
@@ -71,11 +74,12 @@ run_probe() {
     windows)
       local linker
       linker="$(dirname "$(command -v cl)")/link.exe"
-      cl -nologo -c -I"$(native_path "$include")" "$(native_path "$source")" \
-        -Fo"$(native_path "$probe_dir/probe.obj")"
-      "$linker" -nologo -out:"$(native_path "$probe_dir/probe.exe")" \
-        "$(native_path "$probe_dir/probe.obj")" -libpath:"$(native_path "$lib")" \
-        avformat.lib avcodec.lib avutil.lib
+      (
+        cd "$probe_dir"
+        cl -nologo -c -I"$(native_path "$include")" "$(native_path "$source")" -Foprobe.obj
+        "$linker" -nologo -out:probe.exe probe.obj -libpath:"$(native_path "$lib")" \
+          avformat.lib avcodec.lib avutil.lib
+      )
       PATH="$ffmpeg_dir/bin:$PATH" "$probe_dir/probe.exe" $required_encoders
       ;;
   esac

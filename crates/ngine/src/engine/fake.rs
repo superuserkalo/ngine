@@ -4,8 +4,8 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use super::{
-    Audio, Capabilities, Codec, Device, Engine, Event, Levels, Problem, Quality, Recording,
-    RecordingRequest, Refusal, Replay, ReplayRequest, ReplaySpan, ReplayStorage, Status,
+    Audio, Capabilities, Codec, Device, Engine, Event, Inventory, Levels, Problem, Quality,
+    Recording, RecordingRequest, Refusal, Replay, ReplayRequest, ReplaySpan, ReplayStorage, Status,
     SystemSound, Target, TargetKind, Tracks, Video,
 };
 
@@ -244,6 +244,26 @@ fn apps() -> Vec<Target> {
     ]
 }
 
+fn microphones() -> Vec<Device> {
+    let device = |id: &str, name: &str, is_default: bool| Device {
+        id: id.into(),
+        name: name.into(),
+        is_default,
+    };
+    vec![
+        device("built-in", "MacBook Pro Microphone", true),
+        device("usb-mv7", "Shure MV7", false),
+    ]
+}
+
+fn system_sounds() -> Vec<SystemSound> {
+    let app = |id: u64, name: &str| SystemSound::App {
+        id,
+        name: name.into(),
+    };
+    vec![app(2, "Discord"), app(3, "Firefox")]
+}
+
 fn target(kind: TargetKind, id: &str, name: &str, detail: &str) -> Target {
     Target::new(id, kind, name, detail)
 }
@@ -258,15 +278,19 @@ impl Engine for FakeEngine {
         }
     }
 
-    fn targets(&mut self, kind: TargetKind) -> Vec<Target> {
-        if !self.inner.borrow().lists_targets {
-            return Vec::new();
-        }
-        match kind {
-            TargetKind::Screen => screens(),
-            TargetKind::Window => windows(),
-            TargetKind::App => apps(),
-        }
+    fn read_inventory(&mut self, _: &Path) {
+        let mut inner = self.inner.borrow_mut();
+        let sources = if inner.lists_targets {
+            [screens(), windows(), apps()].concat()
+        } else {
+            Vec::new()
+        };
+        inner.events.push(Event::Inventory(Inventory {
+            sources,
+            microphones: microphones(),
+            system_sounds: system_sounds(),
+            free_space: Some(SAMPLE_FREE_BYTES),
+        }));
     }
 
     fn pick_target(&mut self) {
@@ -360,26 +384,6 @@ impl Engine for FakeEngine {
         let at = now.saturating_sub(recording.started);
         inner.events.push(Event::MarkerAdded { at });
         Ok(at)
-    }
-
-    fn microphones(&mut self) -> Vec<Device> {
-        let device = |id: &str, name: &str, is_default: bool| Device {
-            id: id.into(),
-            name: name.into(),
-            is_default,
-        };
-        vec![
-            device("built-in", "MacBook Pro Microphone", true),
-            device("usb-mv7", "Shure MV7", false),
-        ]
-    }
-
-    fn system_sounds(&mut self) -> Vec<SystemSound> {
-        let app = |id: u64, name: &str| SystemSound::App {
-            id,
-            name: name.into(),
-        };
-        vec![app(2, "Discord"), app(3, "Firefox")]
     }
 
     fn status(&self) -> Status {
@@ -569,7 +573,11 @@ mod tests {
     #[test]
     fn the_picker_answers_with_a_target() {
         let mut engine = FakeEngine::new(Clock::manual(), false);
-        assert_eq!(engine.targets(TargetKind::Screen), Vec::new());
+        engine.read_inventory(Path::new("clips"));
+        assert!(matches!(
+            engine.take_events().as_slice(),
+            [Event::Inventory(inventory)] if inventory.sources.is_empty()
+        ));
         engine.pick_target();
         assert_eq!(engine.take_events(), Vec::new());
         engine.advance(PICKER_DELAY);

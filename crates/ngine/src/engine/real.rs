@@ -4,7 +4,9 @@ use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::time::{Duration, SystemTime};
 
-use ngine_capture::{AudioApp, CaptureError, Capturer, PickedTarget, PickerOptions, RestoreToken};
+use ngine_capture::{
+    AudioApp, CaptureError, Capturer, PickedTarget, PickerOptions, RestoreToken, Targets,
+};
 use ngine_recorder::replay::{
     BackendChoice, ReplayLength, SaveRange, installed_memory_bytes, memory_budget_bytes,
 };
@@ -16,11 +18,12 @@ use ngine_recorder::{
 };
 
 use crate::format;
+use crate::work::{Job, Progress};
 
 use super::{
-    Audio, AudioSource, Capabilities, Codec, Device, Engine, Event, Inputs, Levels, Permission,
-    Problem, Quality, Recording, RecordingRequest, Refusal, Replay, ReplayRequest, ReplaySpan,
-    ReplayStorage, Status, SystemSound, Target, TargetKind, Tracks, Video,
+    Audio, AudioSource, Capabilities, Codec, Device, Engine, Event, Inputs, Inventory, Levels,
+    Permission, Problem, Quality, Recording, RecordingRequest, Refusal, Replay, ReplayRequest,
+    ReplaySpan, ReplayStorage, Status, SystemSound, Target, TargetKind, Tracks, Video,
 };
 
 const BYTES_PER_MB: u64 = 1_000_000;
@@ -59,6 +62,68 @@ pub struct RealEngine {
     earlier_parts: Duration,
     save_folder: Option<PathBuf>,
     restore_token_file: Option<PathBuf>,
+    reading: Option<Job<Read>>,
+}
+
+#[derive(Default)]
+struct Read {
+    targets: Option<Targets>,
+    microphones: Vec<Device>,
+    system_sounds: Vec<SystemSound>,
+    free_space: Option<u64>,
+}
+
+fn read(capturer: &Capturer, folder: &Path) -> Read {
+    let targets = capturer.lister().and_then(|lister| lister.targets().ok());
+    let system_sounds = system_sounds(capturer, targets.as_ref());
+    Read {
+        targets,
+        microphones: microphones(capturer),
+        system_sounds,
+        free_space: free_space_bytes(folder),
+    }
+}
+
+fn microphones(capturer: &Capturer) -> Vec<Device> {
+    capturer
+        .microphones()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|device| Device {
+            id: device.id,
+            name: device.name,
+            is_default: device.is_default,
+        })
+        .collect()
+}
+
+fn system_sounds(capturer: &Capturer, listed: Option<&Targets>) -> Vec<SystemSound> {
+    if let Some(lister) = capturer.audio_apps() {
+        return app_sounds(
+            lister
+                .playing()
+                .unwrap_or_default()
+                .into_iter()
+                .map(|app| (app.id, app.name)),
+        );
+    }
+    let Some(listed) = listed else {
+        return Vec::new();
+    };
+    if listed.apps.is_empty() {
+        app_sounds(listed.windows.iter().filter_map(|window| {
+            window
+                .process_id
+                .map(|process_id| (u64::from(process_id), window.app_name.clone()))
+        }))
+    } else {
+        app_sounds(
+            listed
+                .apps
+                .iter()
+                .map(|app| (u64::from(app.process_id), app.name.clone())),
+        )
+    }
 }
 
 fn read_restore_token(file: &Path) -> Option<RestoreToken> {
@@ -221,6 +286,7 @@ impl RealEngine {
             earlier_parts: Duration::ZERO,
             save_folder: None,
             restore_token_file: None,
+            reading: None,
         }
     }
 
@@ -238,65 +304,68 @@ impl RealEngine {
         target
     }
 
-    fn list(&mut self, kind: TargetKind) -> Vec<Target> {
-        let listed = self
-            .capturer
-            .lister()
-            .and_then(|lister| lister.targets().ok());
-        let Some(listed) = listed else {
-            return Vec::new();
-        };
-        match kind {
-            TargetKind::Screen => listed
-                .screens
-                .into_iter()
-                .map(|screen| {
-                    let target = Target::new(
-                        format!("screen-{}", screen.id.0),
-                        kind,
-                        screen.name.clone(),
-                        size(screen.size),
-                    );
-                    self.remember(target, screen.into())
-                })
-                .collect(),
-            TargetKind::Window => listed
-                .windows
-                .into_iter()
-                .filter(|window| {
-                    !window.title.is_empty()
-                        && (!window.on_screen
-                            || (window.size.width >= SMALLEST_LISTED_WINDOW
-                                && window.size.height >= SMALLEST_LISTED_WINDOW))
-                })
-                .map(|window| {
-                    let mut target = Target::new(
-                        format!("window-{}", window.id.0),
-                        kind,
-                        window.title.clone(),
-                        window.app_name.clone(),
-                    )
-                    .elsewhere(!window.on_screen);
-                    if let Some(process_id) = window.process_id {
-                        target = target.owned_by(format!("app-{process_id}"));
-                    }
-                    self.remember(target, window.into())
-                })
-                .collect(),
-            TargetKind::App => listed
-                .apps
-                .into_iter()
-                .map(|app| {
-                    let target = Target::new(
-                        format!("app-{}", app.process_id),
-                        kind,
-                        app.name.clone(),
-                        "",
-                    );
-                    self.remember(target, app.into())
-                })
-                .collect(),
+    fn adopt(&mut self, listed: Targets) -> Vec<Target> {
+        let mut sources = Vec::new();
+        for screen in listed.screens {
+            let target = Target::new(
+                format!("screen-{}", screen.id.0),
+                TargetKind::Screen,
+                screen.name.clone(),
+                size(screen.size),
+            );
+            sources.push(self.remember(target, screen.into()));
         }
+        let shown = listed.windows.into_iter().filter(|window| {
+            !window.title.is_empty()
+                && (!window.on_screen
+                    || (window.size.width >= SMALLEST_LISTED_WINDOW
+                        && window.size.height >= SMALLEST_LISTED_WINDOW))
+        });
+        for window in shown {
+            let mut target = Target::new(
+                format!("window-{}", window.id.0),
+                TargetKind::Window,
+                window.title.clone(),
+                window.app_name.clone(),
+            )
+            .elsewhere(!window.on_screen);
+            if let Some(process_id) = window.process_id {
+                target = target.owned_by(format!("app-{process_id}"));
+            }
+            sources.push(self.remember(target, window.into()));
+        }
+        for app in listed.apps {
+            let target = Target::new(
+                format!("app-{}", app.process_id),
+                TargetKind::App,
+                app.name.clone(),
+                "",
+            );
+            sources.push(self.remember(target, app.into()));
+        }
+        sources
+    }
+
+    fn take_inventory(&mut self) {
+        let Some(job) = &self.reading else {
+            return;
+        };
+        let read = match job.progress() {
+            Progress::Running => return,
+            Progress::Done(read) => read,
+            Progress::Lost => Read::default(),
+        };
+        self.reading = None;
+        let sources = read
+            .targets
+            .map(|listed| self.adopt(listed))
+            .unwrap_or_default();
+        self.events.push(Event::Inventory(Inventory {
+            sources,
+            microphones: read.microphones,
+            system_sounds: read.system_sounds,
+            free_space: read.free_space,
+        }));
     }
 
     fn take_picks(&mut self) {
@@ -566,8 +635,19 @@ impl Engine for RealEngine {
         }
     }
 
-    fn targets(&mut self, kind: TargetKind) -> Vec<Target> {
-        self.list(kind)
+    fn read_inventory(&mut self, folder: &Path) {
+        if self.reading.is_some() {
+            return;
+        }
+        let capturer = Arc::clone(&self.capturer);
+        let folder = folder.to_owned();
+        match Job::spawn("ngine-inventory", move || read(&capturer, &folder)) {
+            Ok(job) => self.reading = Some(job),
+            Err(error) => {
+                eprintln!("ngine: the screens and devices could not be read: {error}");
+                self.events.push(Event::Inventory(Inventory::default()));
+            }
+        }
     }
 
     fn pick_target(&mut self) {
@@ -716,57 +796,12 @@ impl Engine for RealEngine {
         }
     }
 
-    fn microphones(&mut self) -> Vec<Device> {
-        self.capturer
-            .microphones()
-            .unwrap_or_default()
-            .into_iter()
-            .map(|device| Device {
-                id: device.id,
-                name: device.name,
-                is_default: device.is_default,
-            })
-            .collect()
-    }
-
-    fn system_sounds(&mut self) -> Vec<SystemSound> {
-        if let Some(lister) = self.capturer.audio_apps() {
-            return app_sounds(
-                lister
-                    .playing()
-                    .unwrap_or_default()
-                    .into_iter()
-                    .map(|app| (app.id, app.name)),
-            );
-        }
-        let Some(listed) = self
-            .capturer
-            .lister()
-            .and_then(|lister| lister.targets().ok())
-        else {
-            return Vec::new();
-        };
-        if listed.apps.is_empty() {
-            app_sounds(listed.windows.into_iter().filter_map(|window| {
-                window
-                    .process_id
-                    .map(|process_id| (u64::from(process_id), window.app_name))
-            }))
-        } else {
-            app_sounds(
-                listed
-                    .apps
-                    .into_iter()
-                    .map(|app| (u64::from(app.process_id), app.name)),
-            )
-        }
-    }
-
     fn bit_rate(&self, video: Video, audio: Audio) -> u64 {
         bit_rate_cap(&video_settings(video), &audio_settings(audio))
     }
 
     fn take_events(&mut self) -> Vec<Event> {
+        self.take_inventory();
         self.take_picks();
         self.take_recorder_events();
         std::mem::take(&mut self.events)

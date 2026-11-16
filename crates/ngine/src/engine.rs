@@ -12,10 +12,6 @@ pub enum TargetKind {
     App,
 }
 
-impl TargetKind {
-    pub const ALL: [Self; 3] = [Self::Screen, Self::Window, Self::App];
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Target {
     pub id: String,
@@ -150,10 +146,23 @@ pub enum SystemSound {
 /// The devices a capture takes its sound from.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Inputs {
-    /// A [`Device::id`] from [`Engine::microphones`], or the system's
+    /// A [`Device::id`] from [`Inventory::microphones`], or the system's
     /// default microphone, which follows the system when it changes.
     pub microphone: Option<String>,
     pub system: SystemSound,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Inventory {
+    /// Screens, then windows, then apps. Empty when
+    /// [`Capabilities::lists_targets`] is false.
+    pub sources: Vec<Target>,
+    pub microphones: Vec<Device>,
+    /// The system sound choices besides [`SystemSound::Everything`] that
+    /// this system can record: apps playing sound, or output devices.
+    pub system_sounds: Vec<SystemSound>,
+    /// The bytes still free on the disk that holds the folder asked about.
+    pub free_space: Option<u64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -256,6 +265,7 @@ pub enum Event {
     ReplaySaved { file: PathBuf, length: Duration },
     MarkerAdded { at: Duration },
     Problem(Problem),
+    Inventory(Inventory),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -304,8 +314,7 @@ impl Problem {
 pub trait Engine {
     fn capabilities(&self) -> Capabilities;
 
-    /// Empty when [`Capabilities::lists_targets`] is false.
-    fn targets(&mut self, kind: TargetKind) -> Vec<Target>;
+    fn read_inventory(&mut self, folder: &Path);
 
     /// Opens the system picker. The answer arrives as [`Event::TargetPicked`]
     /// or [`Event::PickCancelled`].
@@ -329,13 +338,6 @@ pub trait Engine {
     fn add_marker(&mut self) -> Result<Duration, Refusal>;
 
     fn status(&self) -> Status;
-
-    /// Every microphone the system offers, freshly read.
-    fn microphones(&mut self) -> Vec<Device>;
-
-    /// The system sound choices besides [`SystemSound::Everything`] that this
-    /// system can record: apps playing sound, or output devices.
-    fn system_sounds(&mut self) -> Vec<SystemSound>;
 
     /// The capped bit rate of video and audio together, in bits per second.
     fn bit_rate(&self, video: Video, audio: Audio) -> u64;

@@ -203,3 +203,36 @@ fn a_codec_the_engine_lacks_falls_back_to_one_it_has() {
     assert_eq!(app.settings.video.codec, crate::engine::Codec::H264);
     std::fs::remove_file(&file).expect("temp file removed");
 }
+
+#[test]
+#[ignore = "reads the real screens and devices, which needs a display and the screen recording permission"]
+fn settings_and_the_source_menu_open_within_a_frame_on_the_real_engine() {
+    use std::time::Instant;
+
+    const FRAME: Duration = Duration::from_millis(16);
+    let capturer = ngine_capture::Capturer::system().expect("a capture backend");
+    let engine = crate::engine::real::RealEngine::new(capturer);
+    let mut app = Ngine::new(Box::new(engine), None, demo::settings(), Store::in_memory());
+    for _ in 0..5 {
+        let started = Instant::now();
+        app.open_settings();
+        let opened = started.elapsed();
+        assert!(app.settings_open);
+        assert!(opened < FRAME, "the settings took {opened:?} to open");
+        app.close_settings();
+
+        let started = Instant::now();
+        app.open_sources();
+        let opened = started.elapsed();
+        assert_eq!(app.popup, Some(super::Popup::Sources));
+        assert!(opened < FRAME, "the source menu took {opened:?} to open");
+        app.close_popup();
+    }
+    let waited = Instant::now();
+    while app.reading && waited.elapsed() < Duration::from_secs(10) {
+        std::thread::sleep(FRAME);
+        app.sync(0.0);
+    }
+    assert!(!app.reading, "the inventory never arrived");
+    assert_ne!(app.sources.len(), 0);
+}

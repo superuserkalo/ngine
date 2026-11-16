@@ -9,7 +9,7 @@ use crate::bar::BarState;
 use crate::editor::Editor;
 use crate::engine::fake::FakeEngine;
 use crate::engine::{
-    Capabilities, Device, Engine, Event, Inputs, Permission, Problem, RecordingRequest,
+    Capabilities, Device, Engine, Event, Inputs, Inventory, Permission, Problem, RecordingRequest,
     ReplayRequest, ReplayStorage, Status, SystemSound, Target, TargetKind,
 };
 use crate::format;
@@ -41,6 +41,7 @@ pub const SMALLEST_WINDOW: (f32, f32) = (720.0, 480.0);
 
 const TICK: Duration = Duration::from_millis(250);
 const METER_TICK: Duration = Duration::from_millis(50);
+const READING_TICK: Duration = Duration::from_millis(50);
 const NOTICE_SECONDS: f64 = 4.0;
 const TOAST_SECONDS: f64 = 3.0;
 const SAVE_DELAY_SECONDS: f64 = 0.5;
@@ -140,6 +141,8 @@ pub struct Ngine {
     pub sources: Vec<Target>,
     pub target: Option<Target>,
     pub picking: bool,
+    pub reading: bool,
+    listed: bool,
     after_pick: Option<AfterPick>,
     pub status: Status,
     pub meters: Meters,
@@ -167,7 +170,7 @@ pub struct Ngine {
 
 impl Ngine {
     pub fn new(
-        mut engine: Box<dyn Engine>,
+        engine: Box<dyn Engine>,
         simulator: Option<FakeEngine>,
         mut settings: Settings,
         store: Store,
@@ -178,11 +181,6 @@ impl Ngine {
         {
             settings.video.codec = *codec;
         }
-        let sources: Vec<Target> = TargetKind::ALL
-            .into_iter()
-            .flat_map(|kind| engine.targets(kind))
-            .collect();
-        let free_space = engine.free_space(&settings.output_folder);
         let mut app = Self {
             engine,
             simulator,
@@ -192,9 +190,11 @@ impl Ngine {
             section: Section::Video,
             settings_open: false,
             popup: None,
-            target: sources.first().cloned(),
-            sources,
+            target: None,
+            sources: Vec::new(),
             picking: false,
+            reading: false,
+            listed: false,
             after_pick: None,
             status: Status::default(),
             meters: Meters::default(),
@@ -206,7 +206,7 @@ impl Ngine {
             hotkey_problems: hotkeys::problems(&settings.hotkeys),
             capture: None,
             draft: None,
-            free_space,
+            free_space: None,
             library: Library::offline(),
             browse: Browse::default(),
             editor: None,
@@ -221,11 +221,7 @@ impl Ngine {
             settings_dirty: false,
             save_due: None,
         };
-        app.list_devices();
-        if app.settings.replay.start_with_app && app.target.is_some() {
-            let started = app.set_replay(true);
-            app.note(&started);
-        }
+        app.read_inventory();
         app.refresh();
         app
     }
@@ -272,10 +268,35 @@ impl Ngine {
         }
     }
 
-    /// Reads the microphones and the system sound choices again.
-    pub fn list_devices(&mut self) {
-        self.microphones = self.engine.microphones();
-        self.system_sounds = self.engine.system_sounds();
+    pub fn read_inventory(&mut self) {
+        self.reading = true;
+        self.engine.read_inventory(&self.settings.output_folder);
+        for event in self.engine.take_events() {
+            self.absorb(event);
+        }
+    }
+
+    fn take_inventory(&mut self, inventory: Inventory) {
+        self.reading = false;
+        self.sources = inventory.sources;
+        self.microphones = inventory.microphones;
+        self.system_sounds = inventory.system_sounds;
+        if inventory.free_space.is_some() {
+            self.free_space = inventory.free_space;
+        }
+        if std::mem::replace(&mut self.listed, true) {
+            return;
+        }
+        if self.target.is_none() && !self.picking {
+            self.target = self.sources.first().cloned();
+        }
+        if self.settings.replay.start_with_app
+            && self.target.is_some()
+            && self.status.replay.is_none()
+        {
+            let started = self.set_replay(true);
+            self.note(&started);
+        }
     }
 
     /// The chosen microphone when the system no longer offers it. ngine
@@ -343,21 +364,20 @@ impl Ngine {
         }
     }
 
-    fn list_sources(&mut self) {
-        self.sources = TargetKind::ALL
-            .into_iter()
-            .flat_map(|kind| self.engine.targets(kind))
-            .collect();
-    }
-
-    /// Opens the list of screens, windows and apps, freshly read. Where the
-    /// system only offers its own picker, opens that instead.
     pub fn open_sources(&mut self) {
         if self.capabilities.lists_targets {
-            self.list_sources();
             self.popup = Some(Popup::Sources);
+            self.read_inventory();
         } else {
             self.pick();
+        }
+    }
+
+    pub fn choose_source(&mut self, id: &str) {
+        if let Some(index) = self.sources.iter().position(|source| source.id == id) {
+            self.choose(index);
+        } else {
+            self.popup = None;
         }
     }
 
@@ -395,15 +415,13 @@ impl Ngine {
         self.open_settings();
     }
 
-    /// Opens the settings over the window, at the section shown last.
     pub fn open_settings(&mut self) {
         if !self.settings_open {
-            self.list_devices();
+            self.read_inventory();
         }
         self.settings_open = true;
         self.renaming = None;
         self.popup = None;
-        self.measure_free_space();
         if let Some(editor) = &mut self.editor {
             editor.pause();
         }
@@ -613,6 +631,7 @@ impl Ngine {
                 self.refresh_library();
             }
             Event::Problem(problem) => self.raise(problem),
+            Event::Inventory(inventory) => self.take_inventory(inventory),
             Event::ReplayStarted | Event::ReplayStopped | Event::MarkerAdded { .. } => {}
         }
     }
@@ -707,6 +726,8 @@ pub fn poll(app: &mut Ngine, clock: f64, tx: &mut Tx) -> bool {
         tx.wake_after(soon);
     } else if app.meters_move() {
         tx.wake_after(METER_TICK);
+    } else if app.reading {
+        tx.wake_after(READING_TICK);
     } else if app.wants_ticks() {
         tx.wake_after(TICK);
     }

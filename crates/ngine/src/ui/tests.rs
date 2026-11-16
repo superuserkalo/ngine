@@ -202,10 +202,7 @@ fn idle_capture_shows_the_source_a_record_button_and_why_saving_waits() {
     assert_eq!(words(&runtime, "record-toggle"), "Record");
     assert_eq!(words(&runtime, "elapsed"), "00:00");
     assert!(!shows(&runtime, "recording-state"));
-    assert_eq!(
-        words(&runtime, "replay-state"),
-        "≈ 90 MB in memory"
-    );
+    assert_eq!(words(&runtime, "replay-state"), "≈ 90 MB in memory");
     assert!(!shows(&runtime, "marker"));
     assert!(dimmed(&runtime, "save-short"));
     assert_eq!(help(&runtime, "save-short"), super::capture::NO_REPLAY);
@@ -253,10 +250,7 @@ fn recording_turns_record_into_stop_with_a_marker_button_and_locks_the_source() 
     assert_eq!(help(&runtime, "source"), super::capture::STOP_TO_CHANGE);
 
     press(&mut runtime, "marker");
-    assert_eq!(
-        words(&runtime, "recording-state"),
-        "1 marker"
-    );
+    assert_eq!(words(&runtime, "recording-state"), "1 marker");
     press(&mut runtime, "record-toggle");
     assert_eq!(words(&runtime, "record-toggle"), "Record");
     assert_eq!(words(&runtime, "notice"), "Recording saved · 42 s");
@@ -320,7 +314,8 @@ fn problems_show_one_banner_at_a_time_with_the_count_of_the_rest() {
         "Capture stopped for a moment and was restarted"
     );
     assert!(
-        words(&runtime, "problem-capture-restarted-detail").ends_with("One more problem after this one.")
+        words(&runtime, "problem-capture-restarted-detail")
+            .ends_with("One more problem after this one.")
     );
     assert!(!shows(&runtime, "problem-permission-microphone"));
     press(&mut runtime, "problem-capture-restarted-dismiss");

@@ -39,13 +39,33 @@ pub struct Ui<'a> {
     pub app: &'a Ngine,
     pub layer: Vec<El>,
     pub window: (f32, f32),
-    pub chrome: ChromeInsets,
+    pub band: f32,
 }
 
 /// The titlebar ngine draws in place of the system's: the window's own
 /// controls sit over it, and its empty parts move the window.
+#[cfg_attr(
+    target_os = "macos",
+    expect(
+        dead_code,
+        reason = "macOS keeps its own traffic lights over a full-size content view"
+    )
+)]
 pub fn titlebar() -> Titlebar {
-    Titlebar::new(TITLEBAR).traffic_lights(16.0, 13.0)
+    Titlebar::new(TITLEBAR)
+}
+
+/// How tall the strip across the top is that the window's own controls sit
+/// in and that moves the window: the titlebar ngine draws, or, where the
+/// system draws its buttons over the content, a strip as tall.
+fn top_band(chrome: ChromeInsets, under_window_buttons: bool) -> f32 {
+    if chrome.height > 0.0 {
+        chrome.height
+    } else if under_window_buttons {
+        TITLEBAR
+    } else {
+        0.0
+    }
 }
 
 impl Ui<'_> {
@@ -70,7 +90,7 @@ impl Ui<'_> {
 /// The column a screen lays its content in: padded, and no wider than reads
 /// well on a large monitor.
 pub fn sheet(ui: &Ui<'_>, key: &str) -> El {
-    let top = if ui.chrome.height > 0.0 {
+    let top = if ui.band > 0.0 {
         space::S1
     } else {
         PAGE_PADDING
@@ -258,7 +278,7 @@ fn settings_item(ui: &Ui<'_>) -> El {
 fn sidebar(ui: &Ui<'_>) -> El {
     let p = &ui.p;
     let narrow = ui.narrow();
-    let titlebar_height = ui.chrome.height;
+    let titlebar_height = ui.band;
     let top = if titlebar_height > 0.0 {
         titlebar_height
     } else {
@@ -550,7 +570,7 @@ pub fn view(app: &Ngine, cx: &mut Cx<Ngine>) -> El {
         app,
         layer: Vec::new(),
         window,
-        chrome: cx.chrome_insets(),
+        band: top_band(cx.chrome_insets(), cx.titlebar_inset() > 0.0),
     };
     if app.watching()
         && let Some(watched) = editor::watched(&mut ui, timeline)
@@ -570,11 +590,11 @@ pub fn view(app: &Ngine, cx: &mut Cx<Ngine>) -> El {
         Screen::Editor => editor::view(&mut ui, timeline),
     };
     let mut main = col().key("main").grow(1.0).h_full().min_w(0.0).min_h(0.0);
-    if ui.chrome.height > 0.0 {
+    if ui.band > 0.0 {
         main = main.child(
             el().key("main-titlebar")
                 .w_full()
-                .h(ui.chrome.height)
+                .h(ui.band)
                 .window_drag()
                 .a11y_hidden(),
         );

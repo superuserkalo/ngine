@@ -45,6 +45,12 @@ fn program_to_start(running: &Path, appimage: Option<OsString>) -> PathBuf {
         .map_or_else(|| running.to_path_buf(), PathBuf::from)
 }
 
+/// The window draws its own titlebar: on Windows the caption buttons sit
+/// over ngine's own top strip; elsewhere the system's frame stays.
+pub fn window_frame<S>(app: rune::App<S>) -> rune::App<S> {
+    app.titlebar(crate::ui::titlebar())
+}
+
 pub fn reveal(file: &Path) -> Command {
     let mut command = Command::new("xdg-open");
     command.arg(file.parent().unwrap_or(file));

@@ -147,6 +147,10 @@ fn ask(handle: &AppHandle<Ngine>, command: Command) -> Reply {
         .unwrap_or_else(|_| Err("ngine did not answer in time".into()))
 }
 
+fn window_app() -> App<Ngine> {
+    platform::window_frame(App::new(spec()))
+}
+
 fn spec() -> AppSpec<Ngine> {
     AppSpec {
         scenes: app::demo::SCENES,
@@ -245,8 +249,7 @@ pub fn run(background: bool) -> Result<(), String> {
     }
     let autostart = places.autostart()?;
     rune::set_app_id(NAME);
-    let mut app = App::new(spec())
-        .titlebar(ui::titlebar())
+    let mut app = window_app()
         .args(Vec::new())
         .init(move || places.start())
         .keep_running()
@@ -289,8 +292,7 @@ fn taken_value(arguments: &mut Vec<String>, flag: &str) -> Option<String> {
 /// saved-replay overlay instead of the window.
 pub fn run_tooling(mut arguments: Vec<String>) -> Result<(), String> {
     if let Some(folder) = taken_value(&mut arguments, LIBRARY_FLAG) {
-        return App::new(spec())
-            .titlebar(ui::titlebar())
+        return window_app()
             .args(arguments)
             .init(move || {
                 let mut app = app::demo::idle();
@@ -304,8 +306,7 @@ pub fn run_tooling(mut arguments: Vec<String>) -> Result<(), String> {
             .and_then(|seconds| seconds.parse().ok())
             .and_then(|seconds| Duration::try_from_secs_f64(seconds).ok())
             .unwrap_or_default();
-        return App::new(spec())
-            .titlebar(ui::titlebar())
+        return window_app()
             .args(arguments)
             .init(move || {
                 let mut app = app::demo::idle();
@@ -317,10 +318,7 @@ pub fn run_tooling(mut arguments: Vec<String>) -> Result<(), String> {
     let wanted = arguments.len();
     arguments.retain(|argument| argument != OVERLAY_FLAG);
     if arguments.len() == wanted {
-        return App::new(spec())
-            .titlebar(ui::titlebar())
-            .args(arguments)
-            .try_run();
+        return window_app().args(arguments).try_run();
     }
     let overlay = AppSpec::new("ngine-saved", toast::SIZE, sample_toast, toast::view);
     App::new(overlay).args(arguments).try_run()

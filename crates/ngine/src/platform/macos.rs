@@ -43,6 +43,17 @@ fn xml_text(text: &str) -> String {
         .replace('>', "&gt;")
 }
 
+/// The window keeps the system's own traffic lights over a content view that
+/// fills it, and only the strips ngine marks move it. A titlebar ngine drew
+/// itself would have Rune move the lights, which macOS 26 refuses.
+pub fn window_frame<S>(app: rune::App<S>) -> rune::App<S> {
+    app.chrome(rune::Chrome {
+        full_size_content: true,
+        traffic_lights: None,
+        drag_regions: true,
+    })
+}
+
 pub fn reveal(file: &Path) -> Command {
     let mut command = Command::new("open");
     command.arg("-R").arg(file);

@@ -37,6 +37,12 @@ pub const RESERVED_SHORTCUTS: &[(&str, &str)] = &[
 
 const STARTUP_FILE: &str = "Microsoft\\Windows\\Start Menu\\Programs\\Startup\\ngine.cmd";
 
+/// The window draws its own titlebar: on Windows the caption buttons sit
+/// over ngine's own top strip; elsewhere the system's frame stays.
+pub fn window_frame<S>(app: rune::App<S>) -> rune::App<S> {
+    app.titlebar(crate::ui::titlebar())
+}
+
 pub fn reveal(file: &Path) -> Command {
     let mut selected = OsString::from("/select,");
     selected.push(file);

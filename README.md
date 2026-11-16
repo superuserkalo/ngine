@@ -34,8 +34,14 @@ install the `libxkbcommon` and `libwayland` development packages, for example
 ```sh
 git clone https://github.com/superuserkalo/ngine.git
 cd ngine
+ffmpeg/build.sh
 cargo run
 ```
+
+`ffmpeg/build.sh` builds the trimmed FFmpeg libraries that ngine bundles. It
+takes a few minutes the first time, and `ffmpeg/build.sh --help` lists the
+tools it needs on each system. On Linux, also install `libpipewire-0.3-dev`,
+`clang` and `pkg-config`.
 
 ## Contributing
 

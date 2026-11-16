@@ -313,9 +313,10 @@ build_ffmpeg() {
   rm -rf "${ffmpeg_dir:?}"
   make -C "$builds/ffmpeg" install
   rm -rf "$ffmpeg_dir/share"
-  if [ "$os" = linux ]; then
-    cp -P "$prefix"/lib/libva.so.2* "$prefix"/lib/libva-drm.so.2* "$ffmpeg_dir/lib/"
-  fi
+  case $os in
+    linux) cp -P "$prefix"/lib/libva.so.2* "$prefix"/lib/libva-drm.so.2* "$ffmpeg_dir/lib/" ;;
+    windows) mv "$ffmpeg_dir"/bin/*.lib "$ffmpeg_dir/lib/" ;;
+  esac
   local library
   while IFS= read -r library; do
     case $os in

@@ -74,7 +74,6 @@ run_probe() {
     windows)
       local linker
       linker="$(dirname "$(command -v cl)")/link.exe"
-      ls "$lib"
       (
         cd "$probe_dir"
         export MSYS2_ARG_CONV_EXCL='*' MSYS_NO_PATHCONV=1

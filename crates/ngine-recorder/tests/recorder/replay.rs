@@ -329,8 +329,12 @@ fn the_recorder_restarts_a_broken_capture_and_keeps_the_recording_in_one_file() 
         ["started", "interrupted", "resumed", "finished", "stopped"]
     );
     let file = File::decode(&path);
-    assert!((120..=122).contains(&file.video.len()));
     let duration = file.duration_micros.unwrap();
+    assert!(
+        (120..=122).contains(&file.video.len()),
+        "{} frames over {duration} µs",
+        file.video.len()
+    );
     assert!((duration - 4_000_000).abs() < 150_000, "{duration} µs");
 }
 

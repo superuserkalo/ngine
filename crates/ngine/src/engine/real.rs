@@ -4,22 +4,23 @@ use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::time::{Duration, SystemTime};
 
-use ngine_capture::{CaptureError, Capturer, PickedTarget, PickerOptions, RestoreToken};
+use ngine_capture::{AudioApp, CaptureError, Capturer, PickedTarget, PickerOptions, RestoreToken};
 use ngine_recorder::replay::{
     BackendChoice, ReplayLength, SaveRange, installed_memory_bytes, memory_budget_bytes,
 };
 use ngine_recorder::{
-    AudioCodec, AudioSettings, CaptureSetup, EncoderInfo, Recorder, RecorderConfig, RecorderError,
-    RecorderEvent, RecordingStart, ReplaySaveRequest, ReplaySetup, VideoCodec, VideoSettings,
-    bit_rate_cap, free_space_bytes, unused_path, working_video_codecs, working_video_encoders,
+    AudioCodec, AudioSettings, CaptureSetup, EncoderInfo, Peaks, Recorder, RecorderConfig,
+    RecorderError, RecorderEvent, RecordingStart, ReplaySaveRequest, ReplaySetup, VideoCodec,
+    VideoSettings, bit_rate_cap, free_space_bytes, unused_path, working_video_codecs,
+    working_video_encoders,
 };
 
 use crate::format;
 
 use super::{
-    Audio, AudioSource, Capabilities, Codec, Engine, Event, Permission, Problem, Quality,
-    Recording, RecordingRequest, Refusal, Replay, ReplayRequest, ReplaySpan, ReplayStorage, Status,
-    Target, TargetKind, Tracks, Video,
+    Audio, AudioSource, Capabilities, Codec, Device, Engine, Event, Inputs, Levels, Permission,
+    Problem, Quality, Recording, RecordingRequest, Refusal, Replay, ReplayRequest, ReplaySpan,
+    ReplayStorage, Status, SystemSound, Target, TargetKind, Tracks, Video,
 };
 
 const BYTES_PER_MB: u64 = 1_000_000;
@@ -34,6 +35,7 @@ struct SessionKey {
     target: String,
     video: Video,
     audio: Audio,
+    inputs: Inputs,
 }
 
 struct Session {
@@ -163,6 +165,43 @@ fn write_problem(error: &RecorderError, folder: Option<PathBuf>) -> Problem {
     }
 }
 
+fn level(peak: u16, source: AudioSource) -> u16 {
+    if !source.enabled {
+        return 0;
+    }
+    let scaled = u32::from(peak) * u32::from(source.volume_percent) / 100;
+    u16::try_from(scaled)
+        .unwrap_or(Levels::FULL_SCALE)
+        .min(Levels::FULL_SCALE)
+}
+
+fn levels(peaks: Peaks, audio: Audio) -> Levels {
+    Levels {
+        system: level(peaks.system, audio.system),
+        microphone: level(peaks.microphone, audio.microphone),
+    }
+}
+
+fn sound_of(inputs: &Inputs) -> Option<AudioApp> {
+    match &inputs.system {
+        SystemSound::App { id, name } => Some(AudioApp::new(*id, name.clone())),
+        SystemSound::Everything | SystemSound::Output(_) => None,
+    }
+}
+
+fn app_sounds(apps: impl IntoIterator<Item = (u64, String)>) -> Vec<SystemSound> {
+    let mut sounds: Vec<SystemSound> = Vec::new();
+    for (id, name) in apps {
+        let known = sounds
+            .iter()
+            .any(|sound| matches!(sound, SystemSound::App { id: other, .. } if *other == id));
+        if !known && !name.is_empty() {
+            sounds.push(SystemSound::App { id, name });
+        }
+    }
+    sounds
+}
+
 fn size(size: ngine_capture::Size) -> String {
     format!("{} × {}", size.width, size.height)
 }
@@ -212,12 +251,12 @@ impl RealEngine {
                 .screens
                 .into_iter()
                 .map(|screen| {
-                    let target = Target {
-                        id: format!("screen-{}", screen.id.0),
+                    let target = Target::new(
+                        format!("screen-{}", screen.id.0),
                         kind,
-                        name: screen.name.clone(),
-                        detail: size(screen.size),
-                    };
+                        screen.name.clone(),
+                        size(screen.size),
+                    );
                     self.remember(target, screen.into())
                 })
                 .collect(),
@@ -226,16 +265,21 @@ impl RealEngine {
                 .into_iter()
                 .filter(|window| {
                     !window.title.is_empty()
-                        && window.size.width >= SMALLEST_LISTED_WINDOW
-                        && window.size.height >= SMALLEST_LISTED_WINDOW
+                        && (!window.on_screen
+                            || (window.size.width >= SMALLEST_LISTED_WINDOW
+                                && window.size.height >= SMALLEST_LISTED_WINDOW))
                 })
                 .map(|window| {
-                    let target = Target {
-                        id: format!("window-{}", window.id.0),
+                    let mut target = Target::new(
+                        format!("window-{}", window.id.0),
                         kind,
-                        name: window.title.clone(),
-                        detail: window.app_name.clone(),
-                    };
+                        window.title.clone(),
+                        window.app_name.clone(),
+                    )
+                    .elsewhere(!window.on_screen);
+                    if let Some(process_id) = window.process_id {
+                        target = target.owned_by(format!("app-{process_id}"));
+                    }
                     self.remember(target, window.into())
                 })
                 .collect(),
@@ -243,12 +287,12 @@ impl RealEngine {
                 .apps
                 .into_iter()
                 .map(|app| {
-                    let target = Target {
-                        id: format!("app-{}", app.process_id),
+                    let target = Target::new(
+                        format!("app-{}", app.process_id),
                         kind,
-                        name: app.name.clone(),
-                        detail: String::new(),
-                    };
+                        app.name.clone(),
+                        "",
+                    );
                     self.remember(target, app.into())
                 })
                 .collect(),
@@ -266,16 +310,16 @@ impl RealEngine {
                     }
                     self.targets_picked += 1;
                     let capture = picked.target;
-                    let target = Target {
-                        id: format!("picked-{}", self.targets_picked),
-                        kind: match capture.kind() {
+                    let target = Target::new(
+                        format!("picked-{}", self.targets_picked),
+                        match capture.kind() {
                             ngine_capture::TargetKind::Screen => TargetKind::Screen,
                             ngine_capture::TargetKind::App => TargetKind::App,
                             _ => TargetKind::Window,
                         },
-                        name: capture.label().to_owned(),
-                        detail: "Chosen in the system picker".into(),
-                    };
+                        capture.label(),
+                        "Chosen in the system picker",
+                    );
                     Event::TargetPicked(self.remember(target, capture))
                 }
                 Ok(None) => Event::PickCancelled,
@@ -288,16 +332,42 @@ impl RealEngine {
         }
     }
 
+    fn microphone_in_use(&self, wanted: Option<&String>) -> Option<String> {
+        let wanted = wanted?;
+        let present = self
+            .capturer
+            .microphones()
+            .is_ok_and(|devices| devices.iter().any(|device| &device.id == wanted));
+        present.then(|| wanted.clone())
+    }
+
+    fn capture_setup(
+        &self,
+        capture: ngine_capture::Target,
+        audio: Audio,
+        inputs: &Inputs,
+    ) -> CaptureSetup {
+        CaptureSetup {
+            target: capture,
+            show_cursor: true,
+            app_sound_only: audio.app_only,
+            sound_of: sound_of(inputs),
+            microphone: self.microphone_in_use(inputs.microphone.as_ref()),
+        }
+    }
+
     fn session_for(
         &mut self,
         target: &Target,
         video: Video,
         audio: Audio,
+        inputs: &Inputs,
     ) -> Result<&mut Session, Refusal> {
         let key = SessionKey {
             target: target.id.clone(),
             video,
             audio,
+            inputs: inputs.clone(),
         };
         let carried_replay = match &self.session {
             Some(session) if session.key == key && !session.ended => None,
@@ -322,11 +392,7 @@ impl RealEngine {
                 audio: audio_settings(audio),
                 encoders: self.encoders.clone(),
             };
-            let setup = CaptureSetup {
-                target: capture,
-                show_cursor: true,
-                app_sound_only: audio.app_only,
-            };
+            let setup = self.capture_setup(capture, audio, inputs);
             let recorder = Recorder::start(Arc::clone(&self.capturer), setup, &config)
                 .map_err(|_| Refusal::Blocked(Problem::EncoderFailed))?;
             if let Some(replay) = &carried_replay {
@@ -350,6 +416,7 @@ impl RealEngine {
         let Some(capture) = self.known.get(&target.id).cloned() else {
             return false;
         };
+        let setup = self.capture_setup(capture, key.audio, &key.inputs);
         let Some(session) = self.session.as_mut() else {
             return false;
         };
@@ -361,11 +428,6 @@ impl RealEngine {
         if !keeps_its_streams {
             return false;
         }
-        let setup = CaptureSetup {
-            target: capture,
-            show_cursor: true,
-            app_sound_only: key.audio.app_only,
-        };
         if session.recorder.change_capture(setup, audio).is_err() {
             return false;
         }
@@ -530,7 +592,12 @@ impl Engine for RealEngine {
             return Err(Refusal::AlreadyRecording);
         }
         let file = unused_path(&request.folder, &stamped(RECORDING_NAME));
-        let session = self.session_for(&request.target, request.video, request.audio)?;
+        let session = self.session_for(
+            &request.target,
+            request.video,
+            request.audio,
+            &request.inputs,
+        )?;
         session
             .recorder
             .start_recording(RecordingStart {
@@ -556,7 +623,12 @@ impl Engine for RealEngine {
     }
 
     fn start_replay(&mut self, request: &ReplayRequest) -> Result<(), Refusal> {
-        let session = self.session_for(&request.target, request.video, request.audio)?;
+        let session = self.session_for(
+            &request.target,
+            request.video,
+            request.audio,
+            &request.inputs,
+        )?;
         session
             .recorder
             .set_replay(Some(replay_setup(request)))
@@ -640,7 +712,53 @@ impl Engine for RealEngine {
                 on_disk: status.replay.is_some_and(|replay| replay.on_disk),
                 bytes: status.replay.map_or(0, |replay| replay.bytes),
             }),
-            levels: None,
+            levels: (!session.ended).then(|| levels(status.levels, session.key.audio)),
+        }
+    }
+
+    fn microphones(&mut self) -> Vec<Device> {
+        self.capturer
+            .microphones()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|device| Device {
+                id: device.id,
+                name: device.name,
+                is_default: device.is_default,
+            })
+            .collect()
+    }
+
+    fn system_sounds(&mut self) -> Vec<SystemSound> {
+        if let Some(lister) = self.capturer.audio_apps() {
+            return app_sounds(
+                lister
+                    .playing()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|app| (app.id, app.name)),
+            );
+        }
+        let Some(listed) = self
+            .capturer
+            .lister()
+            .and_then(|lister| lister.targets().ok())
+        else {
+            return Vec::new();
+        };
+        if listed.apps.is_empty() {
+            app_sounds(listed.windows.into_iter().filter_map(|window| {
+                window
+                    .process_id
+                    .map(|process_id| (u64::from(process_id), window.app_name))
+            }))
+        } else {
+            app_sounds(
+                listed
+                    .apps
+                    .into_iter()
+                    .map(|app| (u64::from(app.process_id), app.name)),
+            )
         }
     }
 
@@ -662,6 +780,70 @@ impl Engine for RealEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn source(enabled: bool, volume_percent: u8) -> AudioSource {
+        AudioSource {
+            enabled,
+            volume_percent,
+        }
+    }
+
+    #[test]
+    fn levels_follow_each_sources_volume_and_are_silent_when_it_is_off() {
+        let audio = Audio {
+            system: source(true, 50),
+            microphone: source(false, 100),
+            tracks: Tracks::Three,
+            app_only: false,
+        };
+        let peaks = Peaks {
+            system: 8_000,
+            microphone: 9_000,
+        };
+        assert_eq!(
+            levels(peaks, audio),
+            Levels {
+                system: 4_000,
+                microphone: 0
+            }
+        );
+        let loud = Audio {
+            system: source(true, 200),
+            ..audio
+        };
+        assert_eq!(levels(peaks, loud).system, Levels::FULL_SCALE);
+    }
+
+    #[test]
+    fn each_app_is_offered_once_for_its_own_sound() {
+        let sounds = app_sounds([
+            (7, "Firefox".to_owned()),
+            (7, "Firefox".to_owned()),
+            (9, String::new()),
+            (3, "Discord".to_owned()),
+        ]);
+        assert_eq!(
+            sounds,
+            [
+                SystemSound::App {
+                    id: 7,
+                    name: "Firefox".into()
+                },
+                SystemSound::App {
+                    id: 3,
+                    name: "Discord".into()
+                },
+            ]
+        );
+        assert_eq!(
+            sound_of(&Inputs {
+                microphone: None,
+                system: sounds[1].clone()
+            }),
+            Some(AudioApp::new(3, "Discord"))
+        );
+        assert_eq!(sound_of(&Inputs::default()), None);
+    }
 
     #[test]
     fn the_pickers_choice_is_kept_across_starts_in_a_file() {

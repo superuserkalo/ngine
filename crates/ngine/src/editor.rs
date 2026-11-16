@@ -75,6 +75,12 @@ pub enum News {
 
 /// One recording open for trimming: where its in and out points are, what
 /// the preview shows, and the export that is running.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Grip {
+    Playhead,
+    ClipEnd,
+}
+
 pub struct Editor {
     pub file: PathBuf,
     pub name: String,
@@ -91,6 +97,7 @@ pub struct Editor {
     pub picture: Pixels,
     pub failure: Option<String>,
     pub hovered: bool,
+    pub grip: Grip,
     pub watching: Option<Watching>,
     frame: Duration,
     awaiting_picture: bool,
@@ -131,6 +138,7 @@ impl Editor {
             picture: Pixels::new(),
             failure: None,
             hovered: false,
+            grip: Grip::Playhead,
             watching: None,
             frame: FALLBACK_FRAME,
             awaiting_picture: true,
@@ -168,6 +176,7 @@ impl Editor {
             picture,
             failure: None,
             hovered: false,
+            grip: Grip::Playhead,
             watching: None,
             frame: FALLBACK_FRAME,
             awaiting_picture: false,

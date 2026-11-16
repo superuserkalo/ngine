@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use rune::tok::{radius, space, type_};
 use rune::{
-    Align, Color, El, Icon, ScrollSpec, Side, SurfaceFit, col, el, icon, row, spacer, text,
+    Align, Color, Cursor, El, Icon, ScrollSpec, Side, SurfaceFit, col, el, icon, row, spacer, text,
 };
 
 use super::widgets::{
@@ -188,6 +188,7 @@ fn source(ui: &mut Ui<'_>) -> El {
             .hover(p.t.hover)
             .press(p.t.press)
             .focusable(true)
+            .cursor(Cursor::Pointer)
             .on_press(|app: &mut Ngine| {
                 if app.popup == Some(Popup::Sources) {
                     app.close_popup();
@@ -210,7 +211,7 @@ fn elsewhere_tag(p: &Paint, key: &str) -> El {
         .help("Minimised or on another desktop. It records all the same.")
 }
 
-fn window_item(app: &Ngine, p: &Paint, index: usize, window: &Target, nested: bool) -> El {
+fn window_item(app: &Ngine, p: &Paint, window: &Target, nested: bool) -> El {
     let key = format!("source-{}", window.id);
     let mut item = MenuItem::new(&key, &window.name).chosen(app.target.as_ref() == Some(window));
     if !nested {
@@ -218,7 +219,8 @@ fn window_item(app: &Ngine, p: &Paint, index: usize, window: &Target, nested: bo
             .icon(kind_icon(TargetKind::Window))
             .detail(window.detail.clone());
     }
-    let mut built = item.build(p, "menuitemradio", move |app, _| app.choose(index));
+    let id = window.id.clone();
+    let mut built = item.build(p, "menuitemradio", move |app, _| app.choose_source(&id));
     if nested {
         built = built.pl(space::S6 + space::S3);
     }
@@ -281,14 +283,15 @@ fn screen_items(p: &Paint, app: &Ngine) -> Vec<El> {
         .collect();
     if !screens.is_empty() {
         items.push(menu_heading(&p, "sources-screens", "Screens"));
-        for (index, target) in screens {
+        for (_, target) in screens {
             let key = format!("source-{}", target.id);
+            let id = target.id.clone();
             items.push(
                 MenuItem::new(&key, &target.name)
                     .icon(kind_icon(TargetKind::Screen))
                     .detail(target.detail.clone())
                     .chosen(app.target.as_ref() == Some(target))
-                    .build(&p, "menuitemradio", move |app, _| app.choose(index)),
+                    .build(&p, "menuitemradio", move |app, _| app.choose_source(&id)),
             );
         }
     }
@@ -313,22 +316,22 @@ fn app_items(p: &Paint, app: &Ngine) -> Vec<El> {
     if !apps.is_empty() || !windows.is_empty() {
         items.push(menu_heading(&p, "sources-apps", "Apps and windows"));
     }
-    for (index, owner) in &apps {
-        let index = *index;
+    for (_, owner) in &apps {
         let key = format!("source-{}", owner.id);
+        let id = owner.id.clone();
         let count = window_count(app, owner);
         items.push(
             MenuItem::new(&key, &owner.name)
                 .icon(kind_icon(TargetKind::App))
                 .detail(windows_words(count))
                 .chosen(app.target.as_ref() == Some(*owner))
-                .build(&p, "menuitemradio", move |app, _| app.choose(index)),
+                .build(&p, "menuitemradio", move |app, _| app.choose_source(&id)),
         );
         let own = windows
             .iter()
             .filter(|(_, window)| window.owner.as_deref() == Some(owner.id.as_str()));
-        for (window_index, window) in own.filter(|_| count > 1) {
-            items.push(window_item(app, &p, *window_index, window, true));
+        for (_, window) in own.filter(|_| count > 1) {
+            items.push(window_item(app, &p, window, true));
         }
     }
     let unowned = |window: &&(usize, &Target)| {
@@ -352,9 +355,9 @@ fn app_items(p: &Paint, app: &Ngine) -> Vec<El> {
                     .pt(space::S2)
                     .pb(2.0),
             );
-            items.push(window_item(app, &p, *index, window, true));
+            items.push(window_item(app, &p, window, true));
         } else {
-            items.push(window_item(app, &p, *index, window, apps.is_empty()));
+            items.push(window_item(app, &p, window, apps.is_empty()));
         }
     }
     items
@@ -870,6 +873,7 @@ fn recent(ui: &Ui<'_>) -> Option<El> {
                 .hover(p.t.hover)
                 .press(p.t.press)
                 .focusable(true)
+                .cursor(Cursor::Pointer)
                 .on_press(move |app: &mut Ngine| app.open_in_editor(index))
                 .child(
                     el().key(format!("{key}-thumbnail"))

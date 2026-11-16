@@ -1,7 +1,9 @@
 use std::time::Duration;
 
 use rune::tok::{radius, space, type_};
-use rune::{Align, Color, Drag, El, Phase, Side, SurfaceFit, col, el, icon, row, spacer, text};
+use rune::{
+    Align, Color, Cursor, Drag, El, Phase, Side, SurfaceFit, col, el, icon, row, spacer, text,
+};
 
 use super::widgets::{
     Button, Field, Floating, HEADING, Look, NUMBERS, Paint, Stops, caption, empty_state, field,
@@ -9,7 +11,7 @@ use super::widgets::{
 };
 use super::{Ui, icons, page, sheet};
 use crate::app::{Ngine, Popup, Screen, toggle_watching};
-use crate::editor::{Editor, Exporting, FULL_VOLUME, LOUDEST_PERCENT, PERCENT_STEP, Source};
+use crate::editor::{Editor, Exporting, FULL_VOLUME, Grip, LOUDEST_PERCENT, PERCENT_STEP, Source};
 use crate::format;
 use crate::platform;
 use ngine_recorder::Cut;
@@ -28,6 +30,7 @@ const PREVIEW_VOLUME_WIDTH: f32 = 72.0;
 const LEVEL_WIDTH: f32 = 140.0;
 const EXPAND: f32 = 32.0;
 const OVERLAY_WIDTH: f32 = 960.0;
+const HEADER_NEEDS: f32 = 400.0;
 const SCRUB: f32 = 0.0;
 const MOVE_IN: f32 = 1.0;
 const MOVE_OUT: f32 = 2.0;
@@ -52,18 +55,22 @@ fn fraction(editor: &Editor, at: Duration) -> f32 {
     }
 }
 
+fn grabbed(editor: &Editor, x: f32, width: f32) -> f32 {
+    let to_in = (fraction(editor, editor.start) * width - x).abs();
+    let to_out = (fraction(editor, editor.end) * width - x).abs();
+    if to_in.min(to_out) > GRAB {
+        SCRUB
+    } else if to_in < to_out {
+        MOVE_IN
+    } else {
+        MOVE_OUT
+    }
+}
+
 fn drag_timeline(editor: &mut Editor, drag: &mut Drag) {
     let width = drag.w.max(1.0);
     if drag.phase == Phase::Down {
-        let to_in = (fraction(editor, editor.start) * width - drag.x).abs();
-        let to_out = (fraction(editor, editor.end) * width - drag.x).abs();
-        drag.data = if to_in.min(to_out) > GRAB {
-            SCRUB
-        } else if to_in < to_out {
-            MOVE_IN
-        } else {
-            MOVE_OUT
-        };
+        drag.data = grabbed(editor, drag.x, width);
     }
     if drag.phase == Phase::Up {
         return;
@@ -106,6 +113,19 @@ fn timeline(p: &Paint, editor: &Editor, width: f32) -> El {
         .focusable(true)
         .w_full()
         .h(TIMELINE_HEIGHT)
+        .cursor(match editor.grip {
+            Grip::ClipEnd => Cursor::ResizeColumn,
+            Grip::Playhead => Cursor::Pointer,
+        })
+        .on_pointer_move_local(move |app: &mut Ngine, pointer, _| {
+            if let Some(editor) = &mut app.editor {
+                editor.grip = if grabbed(editor, pointer.x, width.max(1.0)) > SCRUB {
+                    Grip::ClipEnd
+                } else {
+                    Grip::Playhead
+                };
+            }
+        })
         .on_step(|app: &mut Ngine, steps, _| {
             if let Some(editor) = &mut app.editor {
                 editor.step(steps);
@@ -523,6 +543,7 @@ fn header(p: &Paint, editor: &Editor, keys_open: bool) -> El {
             Button::new("editor-keys-button", "Keyboard shortcuts")
                 .only_icon(&icons::CIRCLE_QUESTION_MARK)
                 .look(Look::Quiet)
+                .opens(keys_open)
                 .build(p, move |app| {
                     if keys_open {
                         app.close_popup();
@@ -594,6 +615,7 @@ fn expand_button(watching: bool) -> El {
         .hover(Color::BLACK.alpha(0.75))
         .press(Color::BLACK.alpha(0.9))
         .focusable(true)
+        .cursor(Cursor::Pointer)
         .on_press_tx(toggle_watching)
         .child(icon(glyph, 16.0).color(Color::WHITE).a11y_hidden())
 }
@@ -687,11 +709,12 @@ pub fn view(ui: &mut Ui<'_>, timeline_width: f32) -> El {
     if keys_open {
         shortcuts(ui);
     }
-    let content = sheet(ui, "editor")
-        .gap(space::S3)
-        .child(header(&p, editor, keys_open))
-        .child(body);
-    page("editor", content)
+    let first = ui.top_row(header(&p, editor, keys_open), HEADER_NEEDS);
+    let mut content = sheet(ui, "editor").gap(space::S3);
+    if let Some(header) = first {
+        content = content.child(header);
+    }
+    page("editor", content.child(body))
 }
 
 /// The video filling the window, with the transport and the timeline over

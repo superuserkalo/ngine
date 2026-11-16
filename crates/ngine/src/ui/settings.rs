@@ -1,5 +1,5 @@
 use rune::tok::{radius, space, type_};
-use rune::{Color, El, Icon, PhysicalInput, col, el, icon, row, text};
+use rune::{Color, Cursor, El, Icon, PhysicalInput, col, el, icon, row, text};
 
 use super::capture::{microphone_select, system_sound_select, volume};
 use super::widgets::{
@@ -115,6 +115,7 @@ fn list(ui: &Ui<'_>, width: f32) -> El {
                 .hover(p.t.hover)
                 .press(p.t.press)
                 .focusable(true)
+                .cursor(Cursor::Pointer)
                 .on_press(move |app: &mut Ngine| app.show_section(section))
                 .child(icon(section_icon(section), 15.0).color(ink).a11y_hidden())
                 .child(
@@ -551,6 +552,7 @@ fn hotkey(p: &Paint, app: &Ngine, slot: usize) -> El {
         )
         .hover(p.t.hover)
         .focusable(true)
+        .cursor(Cursor::Pointer)
         .on_press(move |app: &mut Ngine| {
             if app.is_capturing(slot) {
                 app.cancel_hotkey();
@@ -644,6 +646,7 @@ fn folder_row(p: &Paint, key: &str, label: &str, folder: Folder, path: &std::pat
         .border(p.hair, p.outline)
         .hover(p.t.hover)
         .focusable(true)
+        .cursor(Cursor::Pointer)
         .on_press(move |app: &mut Ngine| app.open_folder(&opened))
         .child(icon(&icons::FOLDER_OPEN, 14.0).color(p.faint).a11y_hidden())
         .child(

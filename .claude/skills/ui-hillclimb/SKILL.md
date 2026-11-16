@@ -12,7 +12,7 @@ Climb from the window as it is. Its structure is the owner's accepted starting p
 ## The loop
 
 1. **Render.** Run every snapshot scene (`cargo run -p ngine -- --snap`, see `src/app/demo.rs`) at 1280×800, 960×1080, 960×540 and 720×480 into `.scratch/hillclimb/round-N/`. Also render the real library and editor with `--library-of` and `--editor-on` on a real recording.
-2. **Judge with fresh eyes.** Spawn a reviewer subagent that has NOT seen the code or your reasoning. Give it only this rubric and the round's PNG paths, and ask for every defect with the scene, the exact place, and how bad it is (blocker, clear flaw, nit). Look at every PNG yourself too.
+2. **Judge with fresh eyes.** Headless renders draw no traffic lights; tell the reviewer they sit at the top-left of the sidebar, centred 16 pt down. Spawn a reviewer subagent that has NOT seen the code or your reasoning. Give it only this rubric and the round's PNG paths, and ask for every defect with the scene, the exact place, and how bad it is (blocker, clear flaw, nit). Look at every PNG yourself too.
 3. **Fix the worst first.** Blockers, then clear flaws. Nits only when nothing worse is left.
 4. **Repeat** until a round finds no blocker and no clear flaw, or three rounds have run without progress. Keep each round's pictures so the owner can see the climb.
 5. **Drive the real app** on this Mac for what pictures cannot show: hover, cursor, focus, keyboard, menus, timing. If macOS refuses scripted clicks, use the app's own test runtime to click every control and assert something opens, and say plainly that a person still has to try it.
@@ -40,7 +40,7 @@ Climb from the window as it is. Its structure is the owner's accepted starting p
 
 **The top row.** With no title text, the first row of each screen (toolbar, back control, name, help) sits on the same line as the window controls, vertically centred with them, and the content starts right under it. No empty band where a heading used to be.
 
-**It responds.** Every clickable thing shows the hand cursor on hover and a text field shows the text cursor. Every menu, popover and sheet opens on the first click within one frame and closes and reopens reliably, every time. Click each one in the real app; a picture cannot prove this.
+**It responds.** Every clickable thing shows the hand cursor on hover and a text field shows the text cursor. Every menu, popover and sheet opens on the first click within one frame and closes and reopens reliably, every time. Click each one in the real app; a picture cannot prove this. Nothing slow runs on the window's thread when something is pressed: listing screens, windows or devices, probing encoders or measuring disks happens in the background and fills in when ready, and an ignored test on the real engine times the open.
 
 **Live state.** Recording and replay state is shown where it matters, small and calm, and only when something is live. Meters move when there is sound.
 

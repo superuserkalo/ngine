@@ -1,9 +1,10 @@
 use rune::tok::{radius, space, type_};
-use rune::{Align, Color, El, Side, SurfaceFit, col, el, row, spacer, text, text_input};
+use rune::{Align, Color, Cursor, El, Side, SurfaceFit, col, el, row, spacer, text, text_input};
 
 use super::widgets::{
-    Button, CAPTION, Choice, Field, Floating, Look, MenuItem, NUMBERS, Option_, Paint, Segments,
-    Select, dialog, empty_state, field, float, float_at, menu, menu_rule, segmented, select, tag,
+    Button, CAPTION, CONTROL, Choice, Field, Floating, Look, MenuItem, NUMBERS, Option_, Paint,
+    Segments, Select, dialog, empty_state, field, float, float_at, menu, menu_rule, segmented,
+    select, tag,
 };
 use super::{Ui, icons, page, sheet};
 use crate::app::browse::{Filter, Sort, counted};
@@ -15,7 +16,11 @@ use crate::platform;
 const SMALLEST_CARD: f32 = 200.0;
 const GRID_GAP: f32 = 12.0;
 const FILTER_WIDTH: f32 = 84.0;
+const NARROW_FILTER_WIDTH: f32 = 76.0;
 const SORT_WIDTH: f32 = 136.0;
+const NARROW_SORT_WIDTH: f32 = 120.0;
+const NARROW_TOOLBAR_BELOW: f32 = 720.0;
+const SEARCH_WIDTH: f32 = 96.0;
 const NAME_HEIGHT: f32 = 24.0;
 
 pub const UNREADABLE: &str = "This file cannot be read as a video";
@@ -34,9 +39,15 @@ pub fn details(entry: &Entry) -> String {
     format!("{} · {}", entry.date, format::size(entry.item.bytes))
 }
 
-fn toolbar(ui: &mut Ui<'_>) -> El {
+fn toolbar(ui: &mut Ui<'_>) -> (El, f32) {
     let p = ui.p;
     let app = ui.app;
+    let narrow = ui.content_width() < NARROW_TOOLBAR_BELOW;
+    let (filter_width, sort_width) = if narrow {
+        (NARROW_FILTER_WIDTH, NARROW_SORT_WIDTH)
+    } else {
+        (FILTER_WIDTH, SORT_WIDTH)
+    };
     let segments = Segments {
         key: "library-filter",
         label: "Show",
@@ -45,7 +56,7 @@ fn toolbar(ui: &mut Ui<'_>) -> El {
             .map(|filter| Choice::new(filter.id(), filter.label()))
             .collect(),
         selected: Filter::ALL.iter().position(|one| *one == app.browse.filter),
-        segment_width: FILTER_WIDTH,
+        segment_width: filter_width,
     };
     let filter = segmented(&p, segments, |app, index| {
         if let Some(filter) = Filter::ALL.get(index) {
@@ -65,7 +76,7 @@ fn toolbar(ui: &mut Ui<'_>) -> El {
         Ngine::forget_hidden_selection,
     )
     .grow(1.0)
-    .min_w(120.0);
+    .min_w(SEARCH_WIDTH);
     let sort = Select {
         key: "library-sort",
         label: "Order",
@@ -74,14 +85,17 @@ fn toolbar(ui: &mut Ui<'_>) -> El {
             .map(|sort| Option_::new(sort.label()))
             .collect(),
         selected: Sort::ALL.iter().position(|one| *one == app.browse.sort),
-        width: SORT_WIDTH,
+        width: sort_width,
     };
     let sort = select(&p, app, &mut ui.layer, sort, |app, index| {
         if let Some(sort) = Sort::ALL.get(index) {
             app.set_sort(*sort);
         }
     });
-    row()
+    let filters = f32::from(u8::try_from(Filter::ALL.len()).unwrap_or(u8::MAX));
+    let needs =
+        filters * filter_width + 4.0 + SEARCH_WIDTH + sort_width + CONTROL + 3.0 * space::S2;
+    let bar = row()
         .key("library-toolbar")
         .gap(space::S2)
         .center_y()
@@ -89,6 +103,8 @@ fn toolbar(ui: &mut Ui<'_>) -> El {
         .child(filter)
         .child(search)
         .child(sort)
+        .child(folder_button(&p, app));
+    (bar, needs)
 }
 
 fn selection_bar(p: &Paint, app: &Ngine) -> Option<El> {
@@ -216,6 +232,10 @@ fn card(p: &Paint, app: &Ngine, index: usize, entry: &Entry, width: f32) -> El {
     let more = Button::new(&format!("{key}-more"), "More actions")
         .only_icon(&icons::ELLIPSIS)
         .look(Look::Quiet)
+        .opens(matches!(
+            &app.popup,
+            Some(Popup::ItemMenu { file, at: None }) if *file == entry.item.path
+        ))
         .build(p, move |app| app.open_item_menu(index, None));
     let words = row()
         .key(format!("{key}-words"))
@@ -263,6 +283,7 @@ fn card(p: &Paint, app: &Ngine, index: usize, entry: &Entry, width: f32) -> El {
         .hover(p.t.hover)
         .press(p.t.press)
         .focusable(true)
+        .cursor(Cursor::Pointer)
         .on_press_tx(move |app: &mut Ngine, tx| app.press_item(index, tx.mods()))
         .on_secondary_press(move |app: &mut Ngine, at, _| {
             app.open_item_menu(index, Some((at.x, at.y)));
@@ -457,11 +478,19 @@ fn folder_button(p: &Paint, app: &Ngine) -> El {
 pub fn view(ui: &mut Ui<'_>) -> El {
     let p = ui.p;
     let app = ui.app;
+    let first = if app.library.entries.is_empty() {
+        None
+    } else {
+        let (bar, needs) = toolbar(ui);
+        ui.top_row(bar, needs)
+    };
     let mut content = sheet(ui, "library").gap(space::S3 + space::S1);
     if app.library.entries.is_empty() {
         content = content.child(empty(ui));
     } else {
-        content = content.child(toolbar(ui).child(folder_button(&p, app)));
+        if let Some(bar) = first {
+            content = content.child(bar);
+        }
         if let Some(bar) = selection_bar(&p, app) {
             content = content.child(bar);
         }

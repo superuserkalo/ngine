@@ -1,7 +1,7 @@
 use rune::tok::{radius, space, type_};
 use rune::{
-    ChromeInsets, Color, Cx, El, FileDialogOptions, Icon, ScrollSpec, Titlebar, Tx, col, el, icon,
-    row, spacer, text,
+    ChromeInsets, Color, Cursor, Cx, El, FileDialogOptions, Icon, ScrollSpec, Titlebar, Tx, col,
+    el, icon, row, spacer, text,
 };
 
 use crate::app::{Folder, NAME, Ngine, Screen, Section, WINDOW_SIZE};
@@ -28,7 +28,9 @@ const RAIL_WIDTH: f32 = 56.0;
 const NAV_HEIGHT: f32 = 32.0;
 const DOT: f32 = 6.0;
 pub const TITLEBAR: f32 = 40.0;
+const TRAFFIC_LIGHTS_BAND: f32 = 32.0;
 pub const PAGE_PADDING: f32 = 24.0;
+const TOP_ROW_GAP: f32 = space::S3 + space::S1;
 pub const NARROW_BELOW: f32 = 900.0;
 const WIDEST_CONTENT: f32 = 920.0;
 
@@ -40,6 +42,8 @@ pub struct Ui<'a> {
     pub layer: Vec<El>,
     pub window: (f32, f32),
     pub band: f32,
+    controls: (f32, f32),
+    top: Option<El>,
 }
 
 /// The titlebar ngine draws in place of the system's: the window's own
@@ -57,12 +61,13 @@ pub fn titlebar() -> Titlebar {
 
 /// How tall the strip across the top is that the window's own controls sit
 /// in and that moves the window: the titlebar ngine draws, or, where the
-/// system draws its buttons over the content, a strip as tall.
+/// system draws its traffic lights over the content, a strip they sit in
+/// the middle of.
 fn top_band(chrome: ChromeInsets, under_window_buttons: bool) -> f32 {
     if chrome.height > 0.0 {
         chrome.height
     } else if under_window_buttons {
-        TITLEBAR
+        TRAFFIC_LIGHTS_BAND
     } else {
         0.0
     }
@@ -85,12 +90,37 @@ impl Ui<'_> {
     pub fn content_width(&self) -> f32 {
         (self.main_width() - 2.0 * PAGE_PADDING).clamp(1.0, WIDEST_CONTENT)
     }
+
+    fn sidebar_width(&self) -> f32 {
+        self.window.0 - self.main_width()
+    }
+
+    fn top_row_span(&self) -> (f32, f32) {
+        let left = (self.main_width() - self.content_width()) / 2.0;
+        let start = left.max(self.controls.0 + space::S2 - self.sidebar_width());
+        let end =
+            (left + self.content_width()).min(self.main_width() - self.controls.1 - space::S2);
+        (start - left, (end - start).max(0.0))
+    }
+
+    /// Puts a screen's first row (its toolbar, or the back control and the
+    /// name) in the strip beside the window's controls, centred with them.
+    /// Returns the row when there is no such strip, or it needs more than
+    /// `needs` points the strip has, for the screen to lay out first.
+    pub fn top_row(&mut self, row: El, needs: f32) -> Option<El> {
+        if self.band > 0.0 && self.top_row_span().1 >= needs {
+            self.top = Some(row);
+            None
+        } else {
+            Some(row)
+        }
+    }
 }
 
-/// The column a screen lays its content in: padded, and no wider than reads
-/// well on a large monitor.
 pub fn sheet(ui: &Ui<'_>, key: &str) -> El {
-    let top = if ui.band > 0.0 {
+    let top = if ui.top.is_some() {
+        TOP_ROW_GAP - (ui.band - widgets::CONTROL) / 2.0
+    } else if ui.band > 0.0 {
         space::S1
     } else {
         PAGE_PADDING
@@ -177,6 +207,7 @@ fn nav_item(ui: &Ui<'_>, screen: Screen, key: &str, label: &str, glyph: &'static
         .hover(p.t.text.alpha(0.04))
         .press(p.t.press)
         .focusable(true)
+        .cursor(Cursor::Pointer)
         .on_press(move |app: &mut Ngine| app.show(screen))
         .child(icon(glyph, 16.0).color(ink).a11y_hidden());
     let live = (screen == Screen::Capture).then(|| live_mark(ui)).flatten();
@@ -263,6 +294,7 @@ fn settings_item(ui: &Ui<'_>) -> El {
         .hover(p.t.text.alpha(0.04))
         .press(p.t.press)
         .focusable(true)
+        .cursor(Cursor::Pointer)
         .on_press(Ngine::open_settings)
         .child(icon(&icons::SETTINGS, 16.0).color(ink).a11y_hidden());
     if ui.narrow() {
@@ -554,6 +586,28 @@ fn notice(p: &Paint, app: &Ngine) -> Option<El> {
     )
 }
 
+fn top_strip(ui: &mut Ui<'_>) -> El {
+    let strip = row()
+        .key("main-titlebar")
+        .w_full()
+        .h(ui.band)
+        .justify_center()
+        .center_y()
+        .window_drag();
+    let Some(top) = ui.top.take() else {
+        return strip.a11y_hidden();
+    };
+    let (indent, width) = ui.top_row_span();
+    strip.child(
+        row()
+            .key("top-row")
+            .w(ui.content_width())
+            .pl(indent)
+            .center_y()
+            .child(top.w(width).h(widgets::CONTROL)),
+    )
+}
+
 pub fn view(app: &Ngine, cx: &mut Cx<Ngine>) -> El {
     let p = Paint::dark(cx.env().scale);
     cx.web_focus();
@@ -565,12 +619,15 @@ pub fn view(app: &Ngine, cx: &mut Cx<Ngine>) -> El {
     let timeline = cx
         .layout_size("timeline")
         .map_or(editor::TIMELINE_WIDTH, |size| size[0]);
+    let chrome = cx.chrome_insets();
     let mut ui = Ui {
         p,
         app,
         layer: Vec::new(),
         window,
-        band: top_band(cx.chrome_insets(), cx.titlebar_inset() > 0.0),
+        band: top_band(chrome, cx.titlebar_inset() > 0.0),
+        controls: (chrome.leading.max(cx.titlebar_inset()), chrome.trailing),
+        top: None,
     };
     if app.watching()
         && let Some(watched) = editor::watched(&mut ui, timeline)
@@ -591,13 +648,7 @@ pub fn view(app: &Ngine, cx: &mut Cx<Ngine>) -> El {
     };
     let mut main = col().key("main").grow(1.0).h_full().min_w(0.0).min_h(0.0);
     if ui.band > 0.0 {
-        main = main.child(
-            el().key("main-titlebar")
-                .w_full()
-                .h(ui.band)
-                .window_drag()
-                .a11y_hidden(),
-        );
+        main = main.child(top_strip(&mut ui));
     }
     if let Some(banners) = banners(&p, app, ui.content_width()) {
         main = main.child(banners);
@@ -620,6 +671,8 @@ pub fn view(app: &Ngine, cx: &mut Cx<Ngine>) -> El {
         .children(ui.layer)
 }
 
+#[cfg(test)]
+mod interaction_tests;
 #[cfg(test)]
 mod media_tests;
 #[cfg(test)]

@@ -1,7 +1,7 @@
 use rune::tok::{TextStyle, Theme, motion, radius, space, type_};
 use rune::{
-    Align, Color, Drag, El, Icon, Phase, ScrollSpec, Side, TextEdit, Tx, col, el, icon, row, text,
-    text_input,
+    Align, Color, Cursor, Drag, El, Icon, Phase, ScrollSpec, Side, TextEdit, Tx, col, el, icon,
+    row, text, text_input,
 };
 
 use super::icons;
@@ -92,6 +92,7 @@ pub struct Button<'a> {
     height: f32,
     help: Option<String>,
     only_icon: bool,
+    expanded: Option<bool>,
 }
 
 impl<'a> Button<'a> {
@@ -106,6 +107,7 @@ impl<'a> Button<'a> {
             height: CONTROL,
             help: None,
             only_icon: false,
+            expanded: None,
         }
     }
 
@@ -145,6 +147,11 @@ impl<'a> Button<'a> {
         self
     }
 
+    pub fn opens(mut self, open: bool) -> Self {
+        self.expanded = Some(open);
+        self
+    }
+
     pub fn build_tx(self, p: &Paint, on_press: impl Fn(&mut Ngine, &mut Tx) + 'static) -> El {
         let (fill, ink) = match self.look {
             Look::Primary => (p.accent, p.on_accent),
@@ -166,6 +173,9 @@ impl<'a> Button<'a> {
             })
             .radius(if large { radius::LG } else { radius::MD })
             .fill(fill);
+        if let Some(open) = self.expanded {
+            base = base.expanded(open);
+        }
         base = if self.only_icon {
             base.w(self.height)
         } else {
@@ -196,6 +206,7 @@ impl<'a> Button<'a> {
                 .hover(p.t.text.alpha(0.07))
                 .press(Color::BLACK.alpha(0.16))
                 .focusable(true)
+                .cursor(Cursor::Pointer)
                 .on_press_tx(on_press);
             if let Some(help) = help {
                 pressable.help(help)
@@ -292,6 +303,7 @@ pub fn lone_switch(
         .checked(on)
         .radius(SWITCH.1 / 2.0)
         .focusable(true)
+        .cursor(Cursor::Pointer)
         .on_press(flip)
         .child(switch(p, &format!("{key}-switch"), on))
 }
@@ -351,6 +363,7 @@ pub fn segmented(
                 .center()
                 .radius(radius::SM)
                 .focusable(true)
+                .cursor(Cursor::Pointer)
                 .hover(if chosen {
                     Color::TRANSPARENT
                 } else {
@@ -434,6 +447,7 @@ pub fn slider(p: &Paint, stops: Stops<'_>, set: impl Fn(&mut Ngine, u16) + Clone
         .focusable(true)
         .size(width, SWITCH.1)
         .motion(motion::SNAPPY)
+        .cursor(Cursor::Pointer)
         .on_step(move |app: &mut Ngine, steps, _| {
             let stepped = i32::from(index).saturating_add(steps);
             let bounded = stepped.clamp(0, i32::from(count.saturating_sub(1)));
@@ -577,6 +591,7 @@ pub fn amount_field(p: &Paint, app: &Ngine, layer: &mut Vec<El>, amount: Amount,
         .hover(p.t.hover)
         .press(p.t.press)
         .focusable(true)
+        .cursor(Cursor::Pointer)
         .on_press(move |app: &mut Ngine| {
             let wanted = Popup::Choices(toggle_key.clone());
             if app.popup.as_ref() == Some(&wanted) {
@@ -606,36 +621,43 @@ pub fn amount_field(p: &Paint, app: &Ngine, layer: &mut Vec<El>, amount: Amount,
         .child(editor)
         .child(chevron);
     if open {
-        let current = amount.current(&app.settings);
-        let items = amount
-            .presets(&app.settings)
-            .into_iter()
-            .enumerate()
-            .map(|(index, preset)| {
-                let label = amount.show(preset, automatic);
-                let item_key = format!("{popup}.{index}");
-                MenuItem::new(&item_key, &label)
-                    .chosen(preset == current)
-                    .build(p, "option", move |app, _| app.choose_amount(amount, preset))
-            })
-            .collect::<Vec<_>>();
-        let list = surface(p, &format!("{popup}-choices"), "listbox", amount.label())
-            .focus_group()
-            .min_w(width.max(220.0))
-            .max_h(LIST_HEIGHT)
-            .scroll(ScrollSpec {
-                stick_bottom: false,
-            })
-            .children(items);
-        let floating = Floating {
-            key: &popup,
-            anchor: &format!("{key}-box"),
-            side: Side::Bottom,
-            align: Align::End,
-        };
-        float(layer, &floating, list);
+        presets(p, app, layer, amount, width);
     }
     frame
+}
+
+fn presets(p: &Paint, app: &Ngine, layer: &mut Vec<El>, amount: Amount, width: f32) {
+    let key = amount.key();
+    let automatic = app.memory_budget_mb();
+    let popup = format!("{key}-presets");
+    let current = amount.current(&app.settings);
+    let items = amount
+        .presets(&app.settings)
+        .into_iter()
+        .enumerate()
+        .map(|(index, preset)| {
+            let label = amount.show(preset, automatic);
+            let item_key = format!("{popup}.{index}");
+            MenuItem::new(&item_key, &label)
+                .chosen(preset == current)
+                .build(p, "option", move |app, _| app.choose_amount(amount, preset))
+        })
+        .collect::<Vec<_>>();
+    let list = surface(p, &format!("{popup}-choices"), "listbox", amount.label())
+        .focus_group()
+        .min_w(width.max(220.0))
+        .max_h(LIST_HEIGHT)
+        .scroll(ScrollSpec {
+            stick_bottom: false,
+        })
+        .children(items);
+    let floating = Floating {
+        key: &popup,
+        anchor: &format!("{key}-box"),
+        side: Side::Bottom,
+        align: Align::End,
+    };
+    float(layer, &floating, list);
 }
 
 pub struct Field<'a> {
@@ -749,6 +771,7 @@ pub fn toggle(
         .hover(p.t.hover)
         .press(p.t.press)
         .focusable(true)
+        .cursor(Cursor::Pointer)
         .on_press(flip)
 }
 
@@ -1033,6 +1056,7 @@ impl<'a> MenuItem<'a> {
                 .focusable(true)
                 .focus_highlight(p.t.text.alpha(0.07))
                 .press(Color::BLACK.alpha(0.12))
+                .cursor(Cursor::Pointer)
                 .on_press_tx(on_press),
         }
     }
@@ -1111,6 +1135,7 @@ pub fn select(
         .hover(p.t.text.alpha(0.05))
         .press(Color::BLACK.alpha(0.14))
         .focusable(true)
+        .cursor(Cursor::Pointer)
         .on_press(move |app: &mut Ngine| {
             let wanted = Popup::Choices(popup_key.clone());
             if app.popup.as_ref() == Some(&wanted) {

@@ -11,6 +11,29 @@ pub const FILE_MANAGER: &str = "Finder";
 pub const TRASH: &str = "Trash";
 pub const SYSTEM_SETTINGS: &str = "System Settings";
 pub const LISTS_CAPTURE_TARGETS: bool = true;
+pub const ERASE_KEY: &str = "Delete";
+
+/// Keys macOS keeps for itself or that every Mac app answers, with what they
+/// do there.
+pub const RESERVED_SHORTCUTS: &[(&str, &str)] = &[
+    ("cmd+q", "quitting an app"),
+    ("cmd+w", "closing a window"),
+    ("cmd+h", "hiding an app"),
+    ("cmd+m", "minimising a window"),
+    ("cmd+tab", "switching apps"),
+    ("cmd+backquote", "switching windows"),
+    ("cmd+space", "Spotlight"),
+    ("ctrl+space", "switching input sources"),
+    ("cmd+alt+escape", "Force Quit"),
+    ("cmd+shift+3", "the screenshot of the screen"),
+    ("cmd+shift+4", "the screenshot of a part"),
+    ("cmd+shift+5", "the Screenshot app"),
+    ("ctrl+cmd+q", "locking the screen"),
+    ("ctrl+left", "the Space to the left"),
+    ("ctrl+right", "the Space to the right"),
+    ("ctrl+up", "Mission Control"),
+    ("ctrl+down", "App Exposé"),
+];
 
 const AGENT_FILE: &str = "Library/LaunchAgents/ngine.plist";
 

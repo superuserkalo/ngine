@@ -114,19 +114,85 @@ fn every_scene_draws_a_window() {
 }
 
 #[test]
-fn the_sidebar_has_capture_library_and_settings_and_a_live_status() {
+fn the_sidebar_has_capture_library_and_settings_and_no_status_while_nothing_is_live() {
     let mut runtime = scene("idle");
-    for key in ["nav-capture", "nav-library", "nav-settings", "status-idle"] {
+    for key in ["nav-capture", "nav-library", "nav-settings"] {
         assert!(shows(&runtime, key), "{key}");
     }
-    assert!(!shows(&runtime, "nav-editor"));
-    assert!(!shows(&runtime, "quit"));
+    for key in [
+        "nav-editor",
+        "quit",
+        "status",
+        "live-recording",
+        "live-replay",
+    ] {
+        assert!(!shows(&runtime, key), "{key}");
+    }
     press(&mut runtime, "nav-library");
-    assert_eq!(words(&runtime, "library-title"), "Library");
-    press(&mut runtime, "nav-settings");
-    assert!(shows(&runtime, "sections"));
-    press(&mut runtime, "status");
+    assert!(shows(&runtime, "library"));
+    assert!(!shows(&runtime, "library-title"));
+    press(&mut runtime, "nav-capture");
     assert!(shows(&runtime, "capture"));
+    assert!(!shows(&runtime, "capture-title"));
+}
+
+#[test]
+fn settings_open_as_a_sheet_and_close_with_its_button_escape_and_a_press_outside() {
+    let mut runtime = scene("idle");
+    press(&mut runtime, "nav-settings");
+    assert!(runtime.state.settings_open);
+    assert!(shows(&runtime, "settings"));
+    assert!(shows(&runtime, "capture"));
+    press(&mut runtime, "section-audio");
+    assert!(shows(&runtime, "settings-audio"));
+    press(&mut runtime, "settings-close");
+    assert!(!shows(&runtime, "settings"));
+
+    press(&mut runtime, "nav-settings");
+    runtime.key(KeyEvent {
+        key: Key::Escape,
+        mods: Mods::default(),
+    });
+    runtime.frame(FRAME);
+    runtime.settle_all();
+    assert!(!runtime.state.settings_open);
+
+    press(&mut runtime, "nav-settings");
+    runtime.pointer_down(4.0, 400.0);
+    runtime.pointer_up(4.0, 400.0);
+    runtime.frame(FRAME);
+    runtime.settle_all();
+    assert!(!runtime.state.settings_open);
+}
+
+#[test]
+fn the_settings_shortcut_opens_and_closes_the_sheet() {
+    let mut runtime = scene("idle");
+    runtime.on_key = Some(crate::app::on_key);
+    let comma = KeyEvent {
+        key: Key::Command(','),
+        mods: Mods::default(),
+    };
+    runtime.key(comma.clone());
+    runtime.frame(FRAME);
+    assert!(runtime.state.settings_open);
+    runtime.key(comma);
+    runtime.frame(FRAME);
+    assert!(!runtime.state.settings_open);
+}
+
+#[test]
+fn the_capture_item_shows_a_red_dot_and_the_time_only_while_recording() {
+    let mut runtime = scene("idle");
+    press(&mut runtime, "record-toggle");
+    pass(&mut runtime, Duration::from_secs(42));
+    assert_eq!(words(&runtime, "live-recording-time"), "00:42");
+    press(&mut runtime, "record-toggle");
+    assert!(!shows(&runtime, "live-recording"));
+    press(&mut runtime, "replay-toggle");
+    pass(&mut runtime, Duration::from_secs(5));
+    assert!(shows(&runtime, "live-replay"));
+    assert!(!shows(&runtime, "live-recording"));
 }
 
 #[test]
@@ -155,24 +221,30 @@ fn idle_capture_shows_the_source_a_record_button_and_why_saving_waits() {
 }
 
 #[test]
-fn the_source_menu_groups_screens_windows_and_apps_and_a_press_chooses() {
+fn the_source_menu_lists_each_app_once_with_its_windows_under_it() {
     let mut runtime = scene("idle");
     press(&mut runtime, "source");
-    for key in [
-        "sources-screens",
-        "sources-windows",
-        "sources-apps",
-        "source-picker",
-    ] {
+    for key in ["sources-screens", "sources-apps", "source-picker"] {
         assert!(shows(&runtime, key), "{key}");
     }
+    assert!(!shows(&runtime, "sources-windows"));
+    assert_eq!(words(&runtime, "source-app-3-detail"), "All 3 windows");
+    assert_eq!(words(&runtime, "source-app-2-detail"), "All 2 windows");
+    let app = element(&runtime, "source-app-3").rect;
+    let first = element(&runtime, "source-window-4").rect;
+    let last = element(&runtime, "source-window-6").rect;
+    assert!(app[1] < first[1] && first[1] < last[1]);
+    assert!(first[0] >= app[0]);
+    assert!(shows(&runtime, "source-window-6-elsewhere"));
+    assert!(!shows(&runtime, "source-window-4-elsewhere"));
+
     press(&mut runtime, "source-window-2");
     assert!(!shows(&runtime, "sources"));
-    assert_eq!(words(&runtime, "source-name"), "Discord");
-    assert_eq!(
-        words(&runtime, "recording-state"),
-        "Ready to record Discord"
-    );
+    assert_eq!(words(&runtime, "source-name"), "#general · Squad");
+    assert_eq!(words(&runtime, "source-detail"), "Window of Discord");
+    press(&mut runtime, "source");
+    press(&mut runtime, "source-app-3");
+    assert_eq!(words(&runtime, "source-detail"), "App · all 3 windows");
 }
 
 #[test]
@@ -182,7 +254,6 @@ fn recording_turns_record_into_stop_with_a_marker_button_and_locks_the_source() 
     pass(&mut runtime, Duration::from_secs(42));
     assert_eq!(words(&runtime, "record-toggle"), "Stop");
     assert_eq!(words(&runtime, "elapsed"), "00:42");
-    assert_eq!(words(&runtime, "status-recording-text"), "Recording 00:42");
     assert_eq!(help(&runtime, "source"), super::capture::STOP_TO_CHANGE);
 
     press(&mut runtime, "marker");
@@ -193,7 +264,6 @@ fn recording_turns_record_into_stop_with_a_marker_button_and_locks_the_source() 
     press(&mut runtime, "record-toggle");
     assert_eq!(words(&runtime, "record-toggle"), "Record");
     assert_eq!(words(&runtime, "notice"), "Recording saved · 42 s");
-    assert!(shows(&runtime, "status-idle"));
 }
 
 #[test]
@@ -201,7 +271,6 @@ fn replay_shows_what_it_holds_and_a_save_confirms_the_real_length() {
     let mut runtime = scene("idle");
     press(&mut runtime, "replay-toggle");
     pass(&mut runtime, Duration::from_millis(43_400));
-    assert_eq!(words(&runtime, "status-replay-text"), "Replay on · 1 min");
     assert!(words(&runtime, "replay-state").starts_with("Holding 43 s of 1 min · "));
     assert!(words(&runtime, "replay-state").ends_with(" in memory"));
     assert!(!dimmed(&runtime, "save-short"));
@@ -302,21 +371,40 @@ fn the_settings_sections_switch_what_is_shown() {
 }
 
 #[test]
-fn the_codec_menu_lists_only_what_this_computer_encodes() {
+fn the_codecs_offered_are_only_those_this_computer_encodes() {
     let mut runtime = settings(Section::Video);
-    press(&mut runtime, "codec");
-    assert!(shows(&runtime, "codec.0"));
-    assert!(shows(&runtime, "codec.1"));
-    assert!(!shows(&runtime, "codec.2"));
-    press(&mut runtime, "codec.1");
+    assert!(shows(&runtime, "codec.h264"));
+    assert!(shows(&runtime, "codec.hevc"));
+    assert!(!shows(&runtime, "codec.av1"));
+    press(&mut runtime, "codec.hevc");
     assert_eq!(runtime.state.settings.video.codec, Codec::Hevc);
-    press(&mut runtime, "frame-rate");
-    press(&mut runtime, "frame-rate.2");
+    press(&mut runtime, "settings-frame-rate-presets-button");
+    press(&mut runtime, "settings-frame-rate-presets.2");
     assert_eq!(runtime.state.settings.video.frame_rate, 120);
+    assert_eq!(words(&runtime, "quality-row-hint"), "About 110 MB a minute");
+}
+
+#[test]
+fn a_frame_rate_can_be_typed_and_a_wrong_one_says_the_range() {
+    let mut runtime = settings(Section::Video);
+    runtime.update(|app, _| {
+        app.draft_of(crate::app::Amount::FrameRate).text = "75 fps".into();
+        app.drafted();
+    });
+    runtime.frame(FRAME);
+    assert!(runtime.state.commit_draft());
+    assert_eq!(runtime.state.settings.video.frame_rate, 75);
+    runtime.update(|app, _| {
+        app.draft_of(crate::app::Amount::FrameRate).text = "1000".into();
+        app.drafted();
+    });
+    runtime.frame(FRAME);
+    runtime.settle_all();
     assert_eq!(
-        words(&runtime, "quality-row-hint"),
-        "About 110 MB for each minute"
+        words(&runtime, "frame-rate-row-hint"),
+        "Type a rate from 10 to 240 fps"
     );
+    assert_eq!(runtime.state.settings.video.frame_rate, 75);
 }
 
 #[test]
@@ -325,8 +413,7 @@ fn the_audio_settings_switch_sources_and_tracks() {
     assert_eq!(words(&runtime, "system-volume-value"), "100 %");
     press(&mut runtime, "microphone");
     assert!(!runtime.state.settings.audio.microphone.enabled);
-    press(&mut runtime, "tracks");
-    press(&mut runtime, "tracks.1");
+    press(&mut runtime, "tracks.mix");
     assert_eq!(runtime.state.settings.audio.tracks, Tracks::MixOnly);
     press(&mut runtime, "app-only");
     assert!(!runtime.state.settings.audio.app_only);
@@ -352,13 +439,14 @@ fn the_replay_settings_say_what_the_buffer_costs_and_where_it_is_kept() {
         words(&runtime, "replay-length-row-hint"),
         "≈ 90 MB in memory"
     );
-    press(&mut runtime, "storage");
-    press(&mut runtime, "storage.2");
+    assert!(shows(&runtime, "memory-budget-row"));
+    press(&mut runtime, "storage.disk");
     assert_eq!(runtime.state.settings.replay.storage, ReplayStorage::Disk);
+    assert!(!shows(&runtime, "memory-budget-row"));
     assert_eq!(words(&runtime, "replay-length-row-hint"), "≈ 90 MB on disk");
     let long = scene("settings-replay-long");
     assert_eq!(words(&long, "replay-length-row-hint"), "≈ 1.8 GB on disk");
-    assert_eq!(words(&long, "save-length-current"), "2 min");
+    assert_eq!(words(&long, "settings-save-length"), "2 min");
 }
 
 #[test]
@@ -368,7 +456,7 @@ fn a_shorter_buffer_shortens_the_custom_save_length() {
     runtime.frame(FRAME);
     runtime.settle_all();
     assert_eq!(runtime.state.settings.replay.save_seconds, 30);
-    assert_eq!(words(&runtime, "save-length-current"), "30 s");
+    assert_eq!(words(&runtime, "settings-save-length"), "30 s");
 }
 
 #[test]
@@ -383,7 +471,7 @@ fn the_hotkey_recorder_takes_the_pressed_keys() {
     );
     assert_eq!(
         words(&runtime, "hotkey-4-row-hint"),
-        super::settings::RECORDER_HINT
+        super::settings::recorder_hint()
     );
     let ctrl_shift = Mods {
         ctrl: true,
@@ -431,8 +519,10 @@ fn a_hotkey_can_be_cleared_and_then_says_it_is_not_set() {
     press(&mut runtime, "hotkey-4-clear");
     assert_eq!(runtime.state.settings.hotkeys.marker, "");
     assert_eq!(words(&runtime, "hotkey-4-unset"), super::settings::NOT_SET);
-    assert!(dimmed(&runtime, "hotkey-4-clear"));
-    assert_eq!(help(&runtime, "hotkey-4-clear"), "No hotkey is set");
+    assert!(!shows(&runtime, "hotkey-4-clear"));
+    press(&mut runtime, "hotkey-4-reset");
+    assert_eq!(runtime.state.settings.hotkeys.marker, "ctrl+alt+m");
+    assert!(!shows(&runtime, "hotkey-4-reset"));
     let problem = scene("settings-hotkey-problem");
     assert_eq!(words(&problem, "hotkey-1-row-hint"), hotkeys::USED_TWICE);
     assert_eq!(words(&problem, "hotkey-4-row-hint"), hotkeys::UNUSABLE);
@@ -442,12 +532,12 @@ fn a_hotkey_can_be_cleared_and_then_says_it_is_not_set() {
 fn storage_shows_both_folders_and_the_free_space() {
     let runtime = settings(Section::Storage);
     assert_eq!(
-        words(&runtime, "output-folder-hint"),
+        words(&runtime, "output-folder-value"),
         crate::app::demo::OUTPUT_FOLDER
     );
     for key in [
         "output-folder-change",
-        "output-folder-open",
+        "output-folder-path",
         "buffer-folder-change",
         "free-space-value",
     ] {
@@ -622,4 +712,102 @@ fn caps(accelerator: &str) -> String {
     hotkeys::keycaps(accelerator)
         .expect("the test accelerator parses")
         .join(" ")
+}
+
+#[test]
+fn the_hotkey_recorder_shows_held_modifiers_and_refuses_what_the_system_keeps() {
+    let mut runtime = settings(Section::Hotkeys);
+    press(&mut runtime, "hotkey-1");
+    assert!(shows(&runtime, "hotkey-1-waiting"));
+    runtime.physical_input(PhysicalInput::Modifiers(ctrl_alt()));
+    runtime.frame(FRAME);
+    runtime.settle_all();
+    assert_eq!(
+        words(&runtime, "hotkey-1-held"),
+        rune::modifier_keycaps(ctrl_alt()).join(" ")
+    );
+    let (reserved, _) = crate::platform::RESERVED_SHORTCUTS[0];
+    let shortcut = hotkeys::parse(reserved)
+        .or_else(|| reserved.parse().ok())
+        .expect("a reserved shortcut parses");
+    let before = runtime.state.settings.hotkeys.save_short.clone();
+    runtime.update(|app, _| app.propose_hotkey(hotkeys::SAVE_SHORT, &shortcut));
+    runtime.frame(FRAME);
+    runtime.settle_all();
+    assert!(words(&runtime, "hotkey-1-row-hint").contains("kept by the system for"));
+    assert_eq!(runtime.state.settings.hotkeys.save_short, before);
+}
+
+#[test]
+fn the_meters_show_only_while_something_is_live_and_follow_the_level() {
+    let mut runtime = scene("idle");
+    assert!(!shows(&runtime, "audio-system-meter"));
+    press(&mut runtime, "replay-toggle");
+    pass(&mut runtime, Duration::from_secs(1));
+    assert!(shows(&runtime, "audio-system-meter"));
+    let fill = element(&runtime, "audio-system-meter-fill").rect[2];
+    let whole = element(&runtime, "audio-system-meter").rect[2];
+    let expected = crate::app::meters::position(3_200);
+    assert!((fill / whole - expected).abs() < 0.02, "{fill} of {whole}");
+}
+
+#[test]
+fn the_microphone_menu_starts_with_the_system_default_and_remembers_a_device() {
+    let mut runtime = scene("idle");
+    press(&mut runtime, "capture-microphone");
+    assert_eq!(
+        words(&runtime, "capture-microphone.0-label"),
+        "System default"
+    );
+    assert_eq!(
+        words(&runtime, "capture-microphone.0-detail"),
+        "MacBook Pro Microphone"
+    );
+    press(&mut runtime, "capture-microphone.2");
+    assert_eq!(
+        runtime.state.settings.inputs.microphone.as_deref(),
+        Some("usb-mv7")
+    );
+    assert_eq!(words(&runtime, "capture-microphone-current"), "Shure MV7");
+    assert_eq!(
+        runtime.state.inputs().microphone.as_deref(),
+        Some("usb-mv7")
+    );
+}
+
+#[test]
+fn a_missing_microphone_records_the_default_and_the_settings_say_so() {
+    let mut app = demo::idle();
+    app.edit(|settings| settings.inputs.microphone = Some("unplugged".into()));
+    app.show_section(Section::Audio);
+    let runtime = runtime(app);
+    assert_eq!(runtime.state.inputs().microphone, None);
+    assert!(words(&runtime, "microphone-device-row-hint").contains("not connected"));
+    assert_eq!(
+        words(&runtime, "settings-microphone-current"),
+        "System default"
+    );
+}
+
+#[test]
+fn the_system_sound_menu_offers_all_sound_and_what_the_system_can_separate() {
+    let mut runtime = scene("idle");
+    press(&mut runtime, "capture-system-sound");
+    let offered = runtime.state.system_sounds.clone();
+    assert_eq!(
+        words(&runtime, "capture-system-sound.0-label"),
+        "All system sound"
+    );
+    for (index, sound) in offered.iter().enumerate() {
+        assert_eq!(
+            words(
+                &runtime,
+                &format!("capture-system-sound.{}-label", index + 1)
+            ),
+            super::capture::system_sound_words(sound)
+        );
+    }
+    press(&mut runtime, "capture-system-sound.1");
+    assert_eq!(runtime.state.settings.inputs.system, offered[0]);
+    assert_eq!(runtime.state.inputs().system, offered[0]);
 }

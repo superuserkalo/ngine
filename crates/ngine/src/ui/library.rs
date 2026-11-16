@@ -2,11 +2,10 @@ use rune::tok::{radius, space, type_};
 use rune::{Align, Color, El, Side, SurfaceFit, col, el, row, spacer, text, text_input};
 
 use super::widgets::{
-    Button, CAPTION, Choice, Field, Floating, KEYCAP, Look, MenuItem, NUMBERS, Option_, Paint,
-    Segments, Select, dialog, empty_state, field, float, float_at, menu, menu_rule, segmented,
-    select, tag,
+    Button, CAPTION, Choice, Field, Floating, Look, MenuItem, NUMBERS, Option_, Paint, Segments,
+    Select, dialog, empty_state, field, float, float_at, menu, menu_rule, segmented, select, tag,
 };
-use super::{Ui, icons, page, page_title, sheet};
+use super::{Ui, icons, page, sheet};
 use crate::app::browse::{Filter, Kind, Sort, counted};
 use crate::app::{Ngine, Popup, Screen};
 use crate::format;
@@ -460,40 +459,36 @@ fn nothing_found(p: &Paint) -> El {
     )
 }
 
+fn folder_button(p: &Paint, app: &Ngine) -> El {
+    Button::new("library-folder", "Open folder")
+        .only_icon(&icons::FOLDER_OPEN)
+        .look(Look::Quiet)
+        .help(format!(
+            "Open {} in {}",
+            app.settings.output_folder.display(),
+            platform::FILE_MANAGER
+        ))
+        .build(p, |app| {
+            let folder = app.settings.output_folder.clone();
+            app.open_folder(&folder);
+        })
+}
+
 pub fn view(ui: &mut Ui<'_>) -> El {
     let p = ui.p;
     let app = ui.app;
-    let mut header = row()
-        .key("library-header")
-        .gap(space::S3)
-        .center_y()
-        .child(page_title(&p, "library-title", "Library"));
-    if !app.library.entries.is_empty() {
-        header = header.child(
-            text(total(app))
-                .key("library-total")
-                .font(KEYCAP)
-                .color(p.faint),
-        );
-    }
-    header = header.child(spacer()).child(
-        Button::new("library-folder", "Open folder")
-            .icon(&icons::FOLDER_OPEN)
-            .help(format!(
-                "Open {} in {}",
-                app.settings.output_folder.display(),
-                platform::FILE_MANAGER
-            ))
-            .build(&p, |app| {
-                let folder = app.settings.output_folder.clone();
-                app.open_folder(&folder);
-            }),
-    );
-    let mut content = sheet(ui, "library").child(header);
+    let mut content = sheet(ui, "library").gap(space::S3 + space::S1);
     if app.library.entries.is_empty() {
-        content = content.child(empty(ui));
+        content = content
+            .child(
+                row()
+                    .key("library-header")
+                    .child(spacer())
+                    .child(folder_button(&p, app)),
+            )
+            .child(empty(ui));
     } else {
-        content = content.child(toolbar(ui));
+        content = content.child(toolbar(ui).child(folder_button(&p, app)));
         if let Some(bar) = selection_bar(&p, app) {
             content = content.child(bar);
         }
@@ -501,7 +496,13 @@ pub fn view(ui: &mut Ui<'_>) -> El {
         content = if shown.is_empty() {
             content.child(nothing_found(&p))
         } else {
-            content.child(grid(ui, &shown))
+            content.child(grid(ui, &shown)).child(
+                text(total(app))
+                    .key("library-total")
+                    .font(CAPTION)
+                    .color(p.faint)
+                    .self_center(),
+            )
         };
     }
     item_menu(ui);

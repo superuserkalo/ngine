@@ -2,17 +2,23 @@ use std::path::{Path, PathBuf};
 
 use rune::prefs::{Prefs, PrefsError};
 
-use crate::engine::{Audio, AudioSource, Codec, Quality, ReplayStorage, Tracks, Video};
+use crate::engine::{
+    Audio, AudioSource, Codec, Device, Inputs, Quality, ReplayStorage, SystemSound, Tracks, Video,
+};
 
 pub const FRAME_RATES: [u16; 3] = [30, 60, 120];
 pub const REPLAY_LENGTHS: [u16; 12] = [15, 30, 45, 60, 90, 120, 180, 300, 600, 900, 1200, 1800];
 pub const MEMORY_BUDGETS_MB: [u32; 7] = [256, 384, 512, 768, 1024, 1536, 2048];
 pub const SHORT_SAVE_SECONDS: u16 = 30;
 
-const SHORTEST_REPLAY: u16 = REPLAY_LENGTHS[0];
-const LONGEST_REPLAY: u16 = REPLAY_LENGTHS[REPLAY_LENGTHS.len() - 1];
-const SMALLEST_BUDGET_MB: u32 = MEMORY_BUDGETS_MB[0];
-const LARGEST_BUDGET_MB: u32 = MEMORY_BUDGETS_MB[MEMORY_BUDGETS_MB.len() - 1];
+pub const SHORTEST_REPLAY: u16 = REPLAY_LENGTHS[0];
+pub const LONGEST_REPLAY: u16 = REPLAY_LENGTHS[REPLAY_LENGTHS.len() - 1];
+pub const SMALLEST_BUDGET_MB: u32 = 128;
+pub const LARGEST_BUDGET_MB: u32 = 16_384;
+pub const LOWEST_FRAME_RATE: u16 = 10;
+pub const HIGHEST_FRAME_RATE: u16 = 240;
+const APP_SOUND: &str = "app:";
+const OUTPUT_SOUND: &str = "output:";
 const FULL_VOLUME: u8 = 100;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -73,6 +79,7 @@ pub struct Announcements {
 pub struct Settings {
     pub video: Video,
     pub audio: Audio,
+    pub inputs: Inputs,
     pub replay: ReplaySettings,
     pub output_folder: PathBuf,
     pub hotkeys: Hotkeys,
@@ -98,6 +105,7 @@ impl Settings {
                 tracks: Tracks::Three,
                 app_only: true,
             },
+            inputs: Inputs::default(),
             replay: ReplaySettings {
                 length_seconds: 60,
                 save_seconds: 60,
@@ -192,10 +200,36 @@ fn folder_entry(folder: &Path) -> Entry {
     Entry::Text(folder.to_string_lossy().into_owned())
 }
 
+fn system_sound_entry(sound: &SystemSound) -> Entry {
+    match sound {
+        SystemSound::Everything => Entry::Unset,
+        SystemSound::App { name, .. } => Entry::Text(format!("{APP_SOUND}{name}")),
+        SystemSound::Output(device) => Entry::Text(format!("{OUTPUT_SOUND}{}", device.id)),
+    }
+}
+
+fn system_sound_from(text: &str) -> SystemSound {
+    if let Some(name) = text.strip_prefix(APP_SOUND) {
+        SystemSound::App {
+            id: 0,
+            name: name.to_owned(),
+        }
+    } else if let Some(id) = text.strip_prefix(OUTPUT_SOUND) {
+        SystemSound::Output(Device {
+            id: id.to_owned(),
+            name: id.to_owned(),
+            is_default: false,
+        })
+    } else {
+        SystemSound::Everything
+    }
+}
+
 fn entries(settings: &Settings) -> Vec<(&'static str, Entry)> {
     let Settings {
         video,
         audio,
+        inputs,
         replay,
         output_folder,
         hotkeys,
@@ -224,6 +258,11 @@ fn entries(settings: &Settings) -> Vec<(&'static str, Entry)> {
         ),
         ("audio.tracks", Entry::Text(audio.tracks.name().into())),
         ("audio.app_only", Entry::Flag(audio.app_only)),
+        (
+            "audio.microphone.device",
+            inputs.microphone.clone().map_or(Entry::Unset, Entry::Text),
+        ),
+        ("audio.system.source", system_sound_entry(&inputs.system)),
         (
             "replay.length_seconds",
             Entry::Number(u32::from(replay.length_seconds)),
@@ -291,6 +330,13 @@ impl Reader<'_> {
             .map_or(default, PathBuf::from)
     }
 
+    fn text(&self, key: &str) -> Option<String> {
+        self.0
+            .get::<String>(key)
+            .map(|text| text.trim().to_owned())
+            .filter(|text| !text.is_empty())
+    }
+
     fn seconds(&self, key: &str, default: u16) -> u16 {
         self.0.get::<u16>(key).map_or(default, |seconds| {
             seconds.clamp(SHORTEST_REPLAY, LONGEST_REPLAY)
@@ -316,6 +362,7 @@ fn read(prefs: &Prefs, defaults: Settings) -> Settings {
     let Settings {
         video,
         audio,
+        inputs,
         replay,
         output_folder,
         hotkeys,
@@ -329,7 +376,7 @@ fn read(prefs: &Prefs, defaults: Settings) -> Settings {
             quality: reader.named("video.quality", video.quality),
             frame_rate: prefs
                 .get::<u16>("video.frame_rate")
-                .filter(|rate| FRAME_RATES.contains(rate))
+                .filter(|rate| (LOWEST_FRAME_RATE..=HIGHEST_FRAME_RATE).contains(rate))
                 .unwrap_or(video.frame_rate),
         },
         audio: Audio {
@@ -341,6 +388,12 @@ fn read(prefs: &Prefs, defaults: Settings) -> Settings {
             ),
             tracks: reader.named("audio.tracks", audio.tracks),
             app_only: reader.flag("audio.app_only", audio.app_only),
+        },
+        inputs: Inputs {
+            microphone: reader.text("audio.microphone.device").or(inputs.microphone),
+            system: reader
+                .text("audio.system.source")
+                .map_or(inputs.system, |text| system_sound_from(&text)),
         },
         replay: ReplaySettings {
             length_seconds,
@@ -469,6 +522,13 @@ mod tests {
         };
         settings.audio.tracks = Tracks::MixOnly;
         settings.audio.app_only = false;
+        settings.inputs = Inputs {
+            microphone: Some("usb-microphone-7".into()),
+            system: SystemSound::App {
+                id: 0,
+                name: "Discord".into(),
+            },
+        };
         settings.replay.length_seconds = 300;
         settings.replay.save_seconds = 120;
         settings.replay.storage = ReplayStorage::Disk;
@@ -541,11 +601,11 @@ mod tests {
             br#"{
                 "video.codec": "vp9",
                 "video.quality": "low",
-                "video.frame_rate": 75,
+                "video.frame_rate": 500,
                 "audio.system.volume": 250,
                 "replay.length_seconds": 5,
                 "replay.save_seconds": 900,
-                "replay.memory_budget_mb": 9000,
+                "replay.memory_budget_mb": 90000,
                 "replay.clear_after_save": "yes",
                 "output_folder": ""
             }"#,
@@ -560,9 +620,39 @@ mod tests {
         assert_eq!(settings.audio.system.volume_percent, 100);
         assert_eq!(settings.replay.length_seconds, 15);
         assert_eq!(settings.replay.save_seconds, 15);
-        assert_eq!(settings.replay.memory_budget_mb, Some(2048));
+        assert_eq!(settings.replay.memory_budget_mb, Some(LARGEST_BUDGET_MB));
         assert!(!settings.replay.clear_after_save);
         assert_eq!(settings.output_folder, defaults().output_folder);
+        std::fs::remove_file(&file).expect("temp file removed");
+    }
+
+    #[test]
+    fn typed_values_between_the_presets_and_a_chosen_output_survive_a_load() {
+        let file = temp_file("typed");
+        let mut store = Store::open(&file);
+        store.load(defaults());
+        let mut typed = defaults();
+        typed.video.frame_rate = 75;
+        typed.replay.length_seconds = 100;
+        typed.replay.memory_budget_mb = Some(3000);
+        typed.inputs.system = SystemSound::Output(Device {
+            id: "speakers-2".into(),
+            name: "speakers-2".into(),
+            is_default: false,
+        });
+        store.save(&typed).expect("settings saved");
+
+        let mut reopened = Store::open(&file);
+        assert_eq!(reopened.load(defaults()), typed);
+        std::fs::remove_file(&file).expect("temp file removed");
+    }
+
+    #[test]
+    fn a_settings_file_from_before_devices_could_be_chosen_records_the_defaults() {
+        let file = temp_file("before-devices");
+        std::fs::write(&file, br#"{ "audio.microphone.enabled": true }"#).expect("file written");
+        let mut store = Store::open(&file);
+        assert_eq!(store.load(defaults()).inputs, Inputs::default());
         std::fs::remove_file(&file).expect("temp file removed");
     }
 }

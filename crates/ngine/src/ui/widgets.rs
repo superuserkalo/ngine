@@ -6,9 +6,8 @@ use rune::{
 
 use super::icons;
 use super::palette::Palette;
-use crate::app::{Ngine, Popup};
+use crate::app::{Amount, Ngine, Popup};
 
-pub const TITLE: TextStyle = TextStyle::new(15.0, 600.0);
 pub const HEADING: TextStyle = TextStyle::new(14.0, 600.0);
 pub const TIMER: TextStyle = TextStyle::new(22.0, 500.0).features("tnum");
 pub const CAPTION: TextStyle = TextStyle::new(11.5, 400.0);
@@ -30,7 +29,9 @@ const MENU_WIDTH: f32 = 220.0;
 const POPUP_GAP: f32 = 4.0;
 const DIALOG_WIDTH: f32 = 380.0;
 const LIST_HEIGHT: f32 = 300.0;
-const METER: f32 = 4.0;
+const METER: f32 = 3.0;
+const LOUD: f32 = 0.9;
+const CLIPPING: f32 = 0.985;
 const DISABLED: f32 = 0.42;
 
 #[derive(Clone, Copy)]
@@ -488,38 +489,146 @@ pub fn slider(p: &Paint, stops: Stops<'_>, set: impl Fn(&mut Ngine, u16) + Clone
         )
 }
 
-/// A level meter: how loud a source is now, or an empty bar when nothing is
-/// being captured.
-pub fn meter(p: &Paint, key: &str, label: &str, level: Option<u8>) -> El {
-    let shown = f32::from(level.unwrap_or(0).min(100)) / 100.0;
-    let colour = match level.unwrap_or(0) {
-        0..=79 => p.good,
-        80..=94 => p.warning,
-        _ => p.danger,
+/// A level meter: where the source's peak sits, from 0 (silence) to 1 (full
+/// scale). It turns amber near the top and red where sound clips.
+pub fn meter(p: &Paint, key: &str, label: &str, position: f32) -> El {
+    let shown = position.clamp(0.0, 1.0);
+    let colour = if shown >= CLIPPING {
+        p.danger
+    } else if shown >= LOUD {
+        p.warning
+    } else {
+        p.good
     };
-    let value = level.map_or_else(
-        || "Shown while capturing".to_owned(),
-        |level| format!("{level} %"),
-    );
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "the position is clamped to 0..=1, so the percentage is 0 to 100"
+    )]
+    let percent = (shown * 100.0).round() as u8;
     el().key(key)
         .role("meter")
         .label(label)
-        .range_value(f64::from(level.unwrap_or(0)), 0.0, 100.0)
-        .a11y_value(value.clone())
-        .help(value)
+        .range_value(f64::from(percent), 0.0, 100.0)
+        .a11y_value(format!("{percent} %"))
         .w_full()
         .h(METER)
         .radius(METER / 2.0)
-        .fill(p.t.control_off)
+        .fill(p.t.text.alpha(0.06))
         .child(
             el().key(format!("{key}-fill"))
                 .w_frac(shown)
                 .h(METER)
                 .radius(METER / 2.0)
-                .fill(colour)
-                .motion(motion::SNAPPY)
+                .fill(colour.alpha(0.9))
                 .a11y_hidden(),
         )
+}
+
+/// A field for a value people set to their own number, typed with its
+/// unit, and a menu of the presets beside it. What is typed is set once it
+/// reads as a value in range.
+pub fn amount_field(p: &Paint, app: &Ngine, layer: &mut Vec<El>, amount: Amount, width: f32) -> El {
+    let key = amount.key();
+    let automatic = app.memory_budget_mb();
+    let shown = app
+        .draft
+        .as_ref()
+        .filter(|draft| draft.amount == amount && draft.typed())
+        .map_or_else(
+            || TextEdit::new(amount.text(&app.settings, automatic)),
+            |draft| draft.edit.clone(),
+        );
+    let wrong = app
+        .draft
+        .as_ref()
+        .filter(|draft| draft.amount == amount && draft.typed())
+        .is_some_and(|draft| draft.problem(&app.settings).is_some());
+    let popup = format!("{key}-presets");
+    let open = app.popup == Some(Popup::Choices(popup.clone()));
+    let editor = text_input(&shown, type_::LABEL.features("tnum"))
+        .key(key)
+        .label(amount.label())
+        .single_line()
+        .color(p.t.text)
+        .grow(1.0)
+        .min_w(0.0)
+        .on_edit(move |app: &mut Ngine| app.draft_of(amount))
+        .on_input_change(|app: &mut Ngine, _| app.drafted())
+        .on_submit(|app: &mut Ngine, _| {
+            app.commit_draft();
+        });
+    let toggle_key = popup.clone();
+    let chevron = el()
+        .key(format!("{key}-presets-button"))
+        .role("button")
+        .label(format!("{} presets", amount.label()))
+        .expanded(open)
+        .size(CONTROL - 6.0, CONTROL - 6.0)
+        .center()
+        .radius(radius::SM)
+        .hover(p.t.hover)
+        .press(p.t.press)
+        .focusable(true)
+        .on_press(move |app: &mut Ngine| {
+            let wanted = Popup::Choices(toggle_key.clone());
+            if app.popup.as_ref() == Some(&wanted) {
+                app.close_popup();
+            } else {
+                app.discard_draft();
+                app.open_popup(wanted);
+            }
+        })
+        .child(
+            icon(&icons::CHEVRON_DOWN, ICON)
+                .color(p.t.text_secondary)
+                .a11y_hidden(),
+        );
+    let frame = row()
+        .key(format!("{key}-box"))
+        .w(width)
+        .h(CONTROL)
+        .pl(space::S3)
+        .pr(3.0)
+        .gap(space::S1)
+        .center_y()
+        .radius(radius::MD)
+        .fill(p.t.control_track)
+        .border(p.hair, if wrong { p.danger } else { p.outline })
+        .focus_within_ring(1.5, -1.0, if wrong { p.danger } else { p.accent })
+        .child(editor)
+        .child(chevron);
+    if open {
+        let current = amount.current(&app.settings);
+        let items = amount
+            .presets(&app.settings)
+            .into_iter()
+            .enumerate()
+            .map(|(index, preset)| {
+                let label = amount.show(preset, automatic);
+                let item_key = format!("{popup}.{index}");
+                MenuItem::new(&item_key, &label)
+                    .chosen(preset == current)
+                    .build(p, "option", move |app, _| app.choose_amount(amount, preset))
+            })
+            .collect::<Vec<_>>();
+        let list = surface(p, &format!("{popup}-choices"), "listbox", amount.label())
+            .focus_group()
+            .min_w(width.max(160.0))
+            .max_h(LIST_HEIGHT)
+            .scroll(ScrollSpec {
+                stick_bottom: false,
+            })
+            .children(items);
+        let floating = Floating {
+            key: &popup,
+            anchor: &format!("{key}-box"),
+            side: Side::Bottom,
+            align: Align::End,
+        };
+        float(layer, &floating, list);
+    }
+    frame
 }
 
 pub struct Field<'a> {

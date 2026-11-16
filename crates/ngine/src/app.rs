@@ -9,8 +9,8 @@ use crate::bar::BarState;
 use crate::editor::Editor;
 use crate::engine::fake::FakeEngine;
 use crate::engine::{
-    Capabilities, Engine, Event, Permission, Problem, RecordingRequest, ReplayRequest,
-    ReplayStorage, Status, Target, TargetKind,
+    Capabilities, Device, Engine, Event, Inputs, Permission, Problem, RecordingRequest,
+    ReplayRequest, ReplayStorage, Status, SystemSound, Target, TargetKind,
 };
 use crate::format;
 use crate::hotkeys;
@@ -22,13 +22,17 @@ use crate::shell::Shell;
 use crate::tray;
 
 mod actions;
+mod amounts;
 pub mod browse;
 mod capture;
 pub mod demo;
 mod media;
+pub mod meters;
 
 pub use actions::Action;
+pub use amounts::{Amount, Draft};
 pub use capture::HotkeyCapture;
+pub use meters::Meters;
 
 pub const NAME: &str = env!("CARGO_PKG_NAME");
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -36,6 +40,7 @@ pub const WINDOW_SIZE: (f32, f32) = (1040.0, 680.0);
 pub const SMALLEST_WINDOW: (f32, f32) = (720.0, 480.0);
 
 const TICK: Duration = Duration::from_millis(250);
+const METER_TICK: Duration = Duration::from_millis(50);
 const NOTICE_SECONDS: f64 = 4.0;
 const TOAST_SECONDS: f64 = 3.0;
 const SAVE_DELAY_SECONDS: f64 = 0.5;
@@ -46,7 +51,6 @@ pub enum Screen {
     Capture,
     Library,
     Editor,
-    Settings,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -118,6 +122,10 @@ pub struct ReplayCost {
     pub on_disk: bool,
 }
 
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "each flag is one separate fact about the window, not a state machine"
+)]
 pub struct Ngine {
     engine: Box<dyn Engine>,
     pub simulator: Option<FakeEngine>,
@@ -127,17 +135,22 @@ pub struct Ngine {
     pub settings_were_reset: bool,
     pub screen: Screen,
     pub section: Section,
+    pub settings_open: bool,
     pub popup: Option<Popup>,
     pub sources: Vec<Target>,
     pub target: Option<Target>,
     pub picking: bool,
     after_pick: Option<AfterPick>,
     pub status: Status,
+    pub meters: Meters,
+    pub microphones: Vec<Device>,
+    pub system_sounds: Vec<SystemSound>,
     pub problems: Vec<Problem>,
     pub notice: Option<Notice>,
     pub confirmation: Option<Confirmation>,
     pub hotkey_problems: [Option<String>; hotkeys::COUNT],
     pub capture: Option<HotkeyCapture>,
+    pub draft: Option<Draft>,
     pub free_space: Option<u64>,
     pub library: Library,
     pub browse: Browse,
@@ -177,17 +190,22 @@ impl Ngine {
             store,
             screen: Screen::Capture,
             section: Section::Video,
+            settings_open: false,
             popup: None,
             target: sources.first().cloned(),
             sources,
             picking: false,
             after_pick: None,
             status: Status::default(),
+            meters: Meters::default(),
+            microphones: Vec::new(),
+            system_sounds: Vec::new(),
             problems: Vec::new(),
             notice: None,
             confirmation: None,
             hotkey_problems: hotkeys::problems(&settings.hotkeys),
             capture: None,
+            draft: None,
             free_space,
             library: Library::offline(),
             browse: Browse::default(),
@@ -203,6 +221,7 @@ impl Ngine {
             settings_dirty: false,
             save_due: None,
         };
+        app.list_devices();
         if app.settings.replay.start_with_app && app.target.is_some() {
             let started = app.set_replay(true);
             app.note(&started);
@@ -215,6 +234,11 @@ impl Ngine {
         self.hotkey_problems = shell.bind_hotkeys(&self.settings.hotkeys);
         self.shell = Some(shell);
         self.show_tray();
+    }
+
+    /// Seconds on the app's clock, as the last poll saw it.
+    pub fn clock(&self) -> f64 {
+        self.clock
     }
 
     pub fn memory_budget_mb(&self) -> u32 {
@@ -248,11 +272,57 @@ impl Ngine {
         }
     }
 
+    /// Reads the microphones and the system sound choices again.
+    pub fn list_devices(&mut self) {
+        self.microphones = self.engine.microphones();
+        self.system_sounds = self.engine.system_sounds();
+    }
+
+    /// The chosen microphone when the system no longer offers it. ngine
+    /// records the default microphone instead until it is back.
+    pub fn missing_microphone(&self) -> Option<&str> {
+        let wanted = self.settings.inputs.microphone.as_deref()?;
+        let listed = self.microphones.iter().any(|device| device.id == wanted);
+        (!listed && !self.microphones.is_empty()).then_some(wanted)
+    }
+
+    /// The chosen system sound when it can no longer be recorded, such as an
+    /// app that has quit. ngine records all system sound instead.
+    pub fn missing_system_sound(&self) -> Option<&SystemSound> {
+        let wanted = &self.settings.inputs.system;
+        let available = matches!(wanted, SystemSound::Everything)
+            || self
+                .system_sounds
+                .iter()
+                .any(|offered| same_sound(offered, wanted));
+        (!available).then_some(wanted)
+    }
+
+    /// The inputs a capture starts with: the chosen ones, or the system's
+    /// defaults where a chosen one is missing.
+    pub fn inputs(&self) -> Inputs {
+        let microphone = match self.missing_microphone() {
+            Some(_) => None,
+            None => self.settings.inputs.microphone.clone(),
+        };
+        let system = match self.missing_system_sound() {
+            Some(_) => SystemSound::Everything,
+            None => self
+                .system_sounds
+                .iter()
+                .find(|offered| same_sound(offered, &self.settings.inputs.system))
+                .cloned()
+                .unwrap_or_default(),
+        };
+        Inputs { microphone, system }
+    }
+
     fn recording_request(&self, target: Target) -> RecordingRequest {
         RecordingRequest {
             target,
             video: self.settings.video,
             audio: self.settings.audio,
+            inputs: self.inputs(),
             folder: self.settings.output_folder.clone(),
         }
     }
@@ -263,6 +333,7 @@ impl Ngine {
             target,
             video: self.settings.video,
             audio: self.settings.audio,
+            inputs: self.inputs(),
             length: Duration::from_secs(u64::from(replay.length_seconds)),
             storage: replay.storage,
             memory_budget_mb: self.memory_budget_mb(),
@@ -321,8 +392,27 @@ impl Ngine {
         self.capture = None;
         self.popup = None;
         self.section = section;
-        self.screen = Screen::Settings;
+        self.open_settings();
+    }
+
+    /// Opens the settings over the window, at the section shown last.
+    pub fn open_settings(&mut self) {
+        if !self.settings_open {
+            self.list_devices();
+        }
+        self.settings_open = true;
+        self.renaming = None;
+        self.popup = None;
         self.measure_free_space();
+        if let Some(editor) = &mut self.editor {
+            editor.pause();
+        }
+    }
+
+    pub fn close_settings(&mut self) {
+        self.settings_open = false;
+        self.capture = None;
+        self.popup = None;
     }
 
     fn measure_free_space(&mut self) {
@@ -428,6 +518,7 @@ impl Ngine {
 
     fn settings_changed(&mut self, before: &Settings) {
         self.settings_dirty = true;
+        self.forget_untyped_draft();
         if before.hotkeys != self.settings.hotkeys {
             self.hotkey_problems = match &mut self.shell {
                 Some(shell) => shell.bind_hotkeys(&self.settings.hotkeys),
@@ -449,6 +540,7 @@ impl Ngine {
         }
         let capture_changed = before.video != self.settings.video
             || before.audio != self.settings.audio
+            || before.inputs != self.settings.inputs
             || before.replay != self.settings.replay
             || before.output_folder != self.settings.output_folder;
         if capture_changed && let Some(replay) = self.status.replay.clone() {
@@ -541,6 +633,7 @@ impl Ngine {
         let status = self.engine.status();
         changed |= status != self.status;
         self.status = status;
+        changed |= self.meters.follow(self.status.levels, self.clock);
         self.show_tray();
         changed
     }
@@ -581,6 +674,7 @@ impl Ngine {
         let mut changed = self.refresh();
         changed |= self.follow_media();
         changed |= self.expire();
+        changed |= self.settle_draft();
         if self.settings_dirty {
             self.settings_dirty = false;
             self.save_due = Some(clock + SAVE_DELAY_SECONDS);
@@ -592,6 +686,10 @@ impl Ngine {
         changed
     }
 
+    fn meters_move(&self) -> bool {
+        self.screen == Screen::Capture && (self.status.levels.is_some() || self.meters.moving())
+    }
+
     fn wants_ticks(&self) -> bool {
         self.status.recording.is_some()
             || self.status.replay.is_some()
@@ -599,6 +697,7 @@ impl Ngine {
             || self.notice.is_some()
             || self.confirmation.is_some()
             || self.save_due.is_some()
+            || self.draft_waits()
     }
 }
 
@@ -606,6 +705,8 @@ pub fn poll(app: &mut Ngine, clock: f64, tx: &mut Tx) -> bool {
     let changed = app.sync(clock);
     if let Some(soon) = app.media_wants_ticks() {
         tx.wake_after(soon);
+    } else if app.meters_move() {
+        tx.wake_after(METER_TICK);
     } else if app.wants_ticks() {
         tx.wake_after(TICK);
     }
@@ -619,11 +720,24 @@ pub fn on_key(app: &mut Ngine, event: &KeyEvent, tx: &mut Tx) -> bool {
             app.save_settings();
             tx.quit();
         }
-        Key::Command(',') => app.show(Screen::Settings),
+        Key::Command(',') if app.settings_open => app.close_settings(),
+        Key::Command(',') => app.open_settings(),
         Key::Command('1') => app.show(Screen::Capture),
         Key::Command('2') => app.show(Screen::Library),
         Key::Escape if app.capture.is_some() => app.cancel_hotkey(),
+        Key::Escape if app.draft.is_some() => app.discard_draft(),
+        Key::Escape if app.settings_open => app.close_settings(),
+        _ if app.settings_open => return false,
         Key::Escape if app.renaming.is_some() => app.cancel_rename(),
+        Key::Escape if app.watching() => toggle_watching(app, tx),
+        Key::Text(ref key)
+            if key.eq_ignore_ascii_case("f")
+                && app.editor.is_some()
+                && app.screen == Screen::Editor
+                && tx.focused().is_none_or(|key| key != "clip-name") =>
+        {
+            toggle_watching(app, tx);
+        }
         Key::Escape if app.screen == Screen::Editor => app.close_editor(),
         _ if app.screen == Screen::Editor && tx.focused().is_none_or(|key| key != "clip-name") => {
             return app.editor_key(event);
@@ -635,6 +749,28 @@ pub fn on_key(app: &mut Ngine, event: &KeyEvent, tx: &mut Tx) -> bool {
         _ => return false,
     }
     true
+}
+
+fn same_sound(offered: &SystemSound, wanted: &SystemSound) -> bool {
+    match (offered, wanted) {
+        (SystemSound::Everything, SystemSound::Everything) => true,
+        (SystemSound::App { name: a, .. }, SystemSound::App { name: b, .. }) => a == b,
+        (SystemSound::Output(a), SystemSound::Output(b)) => a.id == b.id,
+        _ => false,
+    }
+}
+
+/// Starts or ends watching the open video full screen, taking the window
+/// full screen with it and giving it back after.
+pub fn toggle_watching(app: &mut Ngine, tx: &mut Tx) {
+    if app.watching() {
+        if app.stop_watching() {
+            tx.toggle_full_screen();
+        }
+    } else {
+        app.watch_full_screen(true);
+        tx.toggle_full_screen();
+    }
 }
 
 pub fn on_close(app: &mut Ngine, _: &mut Tx) {

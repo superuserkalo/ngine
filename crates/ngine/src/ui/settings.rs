@@ -1,32 +1,40 @@
-use std::time::Duration;
-
 use rune::tok::{radius, space, type_};
-use rune::{Color, El, Icon, PhysicalInput, col, icon, row, spacer, text};
+use rune::{Color, El, Icon, PhysicalInput, col, el, icon, row, text};
 
-use super::capture::{cost_words, length_select, volume};
+use super::capture::{microphone_select, system_sound_select, volume};
 use super::widgets::{
-    Button, CONTROL, Look, NUMBERS, Option_, Paint, STRONG, Select, caption, dialog, keycaps,
-    section, select, setting, toggle, troubled_setting,
+    Button, CONTROL, Choice, Look, NUMBERS, Paint, STRONG, Segments, amount_field, caption, dialog,
+    keycaps, section, segmented, setting, toggle, troubled_setting,
 };
-use super::{EARLY_NOTE, SIMULATED_NOTE, Ui, choose_folder, icons, page, page_title};
-use crate::app::{Folder, NAME, Ngine, Popup, Section, VERSION};
+use super::{EARLY_NOTE, SIMULATED_NOTE, Ui, choose_folder, icons};
+use crate::app::{Amount, Folder, NAME, Ngine, Popup, Section, VERSION};
 use crate::engine::{Codec, Quality, ReplayStorage, Tracks};
 use crate::format;
 use crate::hotkeys;
 use crate::platform;
-use crate::settings::{FRAME_RATES, MEMORY_BUDGETS_MB, REPLAY_LENGTHS};
 
 const LIST_WIDTH: f32 = 176.0;
 const NARROW_LIST_WIDTH: f32 = 148.0;
 const LIST_ITEM: f32 = 30.0;
-const SELECT_WIDTH: f32 = 180.0;
-const HOTKEY_WIDTH: f32 = 168.0;
+const SELECT_WIDTH: f32 = 200.0;
+const AMOUNT_WIDTH: f32 = 148.0;
+const HOTKEY_WIDTH: f32 = 160.0;
 const SLIDER_WIDTH: f32 = 120.0;
-const WIDEST_SECTION: f32 = 640.0;
+const SHEET_MARGIN: f32 = 32.0;
+const WIDEST_SHEET: f32 = 860.0;
+const TALLEST_SHEET: f32 = 640.0;
+const SHEET_RADIUS: f32 = 14.0;
 
 pub const NOT_SET: &str = "Not set";
 pub const WAITING_FOR_KEYS: &str = "Press keys…";
-pub const RECORDER_HINT: &str = "Press the keys to use. Esc cancels, Delete clears.";
+
+/// What the hotkey recorder says while it listens.
+pub fn recorder_hint() -> String {
+    format!(
+        "Press the new keys. Esc cancels, {} clears.",
+        platform::ERASE_KEY
+    )
+}
 
 pub fn section_label(section: Section) -> &'static str {
     match section {
@@ -64,28 +72,20 @@ fn section_icon(section: Section) -> &'static Icon {
     }
 }
 
-fn list(ui: &Ui<'_>) -> El {
+fn list(ui: &Ui<'_>, width: f32) -> El {
     let p = &ui.p;
     let mut items = col()
         .key("sections")
         .role("tablist")
         .label("Settings sections")
         .focus_group()
-        .w(if ui.narrow() {
-            NARROW_LIST_WIDTH
-        } else {
-            LIST_WIDTH
-        })
+        .w(width)
         .h_full()
         .px(space::S2)
-        .py(super::PAGE_PADDING)
+        .py(space::S3)
         .gap(2.0)
-        .border_sides([0.0, p.hair, 0.0, 0.0], p.t.separator)
-        .child(
-            page_title(p, "settings-title", "Settings")
-                .ml(space::S2)
-                .mb(space::S2),
-        );
+        .fill(p.sidebar)
+        .border_sides([0.0, p.hair, 0.0, 0.0], p.t.separator);
     for section in Section::ALL {
         let current = ui.app.section == section;
         let ink = if current {
@@ -126,11 +126,19 @@ fn list(ui: &Ui<'_>) -> El {
     items
 }
 
-fn codec_label(codec: Codec) -> &'static str {
+pub fn codec_label(codec: Codec) -> &'static str {
     match codec {
         Codec::H264 => "H.264",
-        Codec::Hevc => "HEVC (H.265)",
+        Codec::Hevc => "HEVC",
         Codec::Av1 => "AV1",
+    }
+}
+
+fn codec_id(codec: Codec) -> &'static str {
+    match codec {
+        Codec::H264 => "h264",
+        Codec::Hevc => "hevc",
+        Codec::Av1 => "av1",
     }
 }
 
@@ -143,15 +151,41 @@ fn quality_label(quality: Quality) -> &'static str {
     }
 }
 
-fn seconds(seconds: u16) -> String {
-    format::length(Duration::from_secs(u64::from(seconds)))
+fn quality_id(quality: Quality) -> &'static str {
+    match quality {
+        Quality::Low => "low",
+        Quality::Medium => "medium",
+        Quality::High => "high",
+        Quality::Highest => "highest",
+    }
 }
 
 fn megabytes_a_minute(app: &Ngine) -> String {
     format!(
-        "About {} for each minute",
+        "About {} a minute",
         format::megabytes(app.megabytes_per_minute())
     )
+}
+
+fn amount(ui: &mut Ui<'_>, amount: Amount, width: f32) -> El {
+    let p = ui.p;
+    let app = ui.app;
+    amount_field(&p, app, &mut ui.layer, amount, width)
+}
+
+fn amount_row(ui: &mut Ui<'_>, key: &str, label: &str, which: Amount, hint: Option<String>) -> El {
+    let field = amount(ui, which, AMOUNT_WIDTH);
+    let p = ui.p;
+    let problem = ui
+        .app
+        .draft
+        .as_ref()
+        .filter(|draft| draft.amount == which && draft.typed())
+        .and_then(|draft| draft.problem(&ui.app.settings));
+    match problem {
+        Some(problem) => troubled_setting(&p, key, label, problem, field),
+        None => setting(&p, key, label, hint, field),
+    }
 }
 
 fn video(ui: &mut Ui<'_>) -> Vec<El> {
@@ -159,63 +193,51 @@ fn video(ui: &mut Ui<'_>) -> Vec<El> {
     let app = ui.app;
     let video = app.settings.video;
     let codecs = app.capabilities.codecs.clone();
-    let codec = Select {
-        key: "codec",
-        label: "Codec",
-        options: codecs
-            .iter()
-            .map(|codec| Option_::new(codec_label(*codec)))
-            .collect(),
-        selected: codecs.iter().position(|codec| *codec == video.codec),
-        width: SELECT_WIDTH,
-    };
-    let codec_hint = match codecs.len() {
-        0 | 1 => "The only one this computer can encode".to_owned(),
-        _ => "Only the ones this computer can encode are listed".to_owned(),
-    };
-    let codec = select(&p, app, &mut ui.layer, codec, move |app, index| {
-        if let Some(codec) = codecs.get(index) {
-            app.edit(|settings| settings.video.codec = *codec);
-        }
-    });
-    let quality = Select {
-        key: "quality",
-        label: "Quality",
-        options: Quality::ALL
-            .iter()
-            .map(|quality| Option_::new(quality_label(*quality)))
-            .collect(),
-        selected: Quality::ALL.iter().position(|one| *one == video.quality),
-        width: SELECT_WIDTH,
-    };
-    let quality = select(&p, app, &mut ui.layer, quality, |app, index| {
-        if let Some(quality) = Quality::ALL.get(index) {
-            app.edit(|settings| settings.video.quality = *quality);
-        }
-    });
-    let rate = Select {
-        key: "frame-rate",
-        label: "Frame rate",
-        options: FRAME_RATES
-            .iter()
-            .map(|rate| Option_::new(format!("{rate} fps")))
-            .collect(),
-        selected: FRAME_RATES
-            .iter()
-            .position(|rate| *rate == video.frame_rate),
-        width: SELECT_WIDTH,
-    };
-    let rate = select(&p, app, &mut ui.layer, rate, |app, index| {
-        if let Some(rate) = FRAME_RATES.get(index) {
-            app.edit(|settings| settings.video.frame_rate = *rate);
-        }
-    });
+    let codec_hint = (codecs.len() < Codec::ALL.len())
+        .then(|| "Only the codecs this computer can encode are offered".to_owned());
+    let codec = segmented(
+        &p,
+        Segments {
+            key: "codec",
+            label: "Codec",
+            choices: codecs
+                .iter()
+                .map(|codec| Choice::new(codec_id(*codec), codec_label(*codec)))
+                .collect(),
+            selected: codecs.iter().position(|codec| *codec == video.codec),
+            segment_width: 64.0,
+        },
+        move |app, index| {
+            if let Some(codec) = codecs.get(index) {
+                app.edit(|settings| settings.video.codec = *codec);
+            }
+        },
+    );
+    let quality = segmented(
+        &p,
+        Segments {
+            key: "quality",
+            label: "Quality",
+            choices: Quality::ALL
+                .iter()
+                .map(|quality| Choice::new(quality_id(*quality), quality_label(*quality)))
+                .collect(),
+            selected: Quality::ALL.iter().position(|one| *one == video.quality),
+            segment_width: 72.0,
+        },
+        |app, index| {
+            if let Some(quality) = Quality::ALL.get(index) {
+                app.edit(|settings| settings.video.quality = *quality);
+            }
+        },
+    );
+    let rate = amount_row(ui, "frame-rate-row", "Frame rate", Amount::FrameRate, None);
     vec![section(
         &p,
         "video",
         "Encoding",
         vec![
-            setting(&p, "codec-row", "Codec", Some(codec_hint), codec),
+            setting(&p, "codec-row", "Codec", codec_hint, codec),
             setting(
                 &p,
                 "quality-row",
@@ -223,46 +245,60 @@ fn video(ui: &mut Ui<'_>) -> Vec<El> {
                 Some(megabytes_a_minute(app)),
                 quality,
             ),
-            setting(&p, "frame-rate-row", "Frame rate", None, rate),
+            rate,
         ],
     )]
 }
 
 fn audio(ui: &mut Ui<'_>) -> Vec<El> {
     let p = ui.p;
+    let microphone = microphone_select(ui, "settings-microphone", SELECT_WIDTH);
+    let system = system_sound_select(ui, "settings-system-sound", SELECT_WIDTH);
     let app = ui.app;
     let audio = app.settings.audio;
-    let tracks = Select {
-        key: "tracks",
-        label: "Tracks",
-        options: Tracks::ALL
-            .iter()
-            .map(|tracks| match tracks {
-                Tracks::Three => Option_::new("Three tracks"),
-                Tracks::MixOnly => Option_::new("Mix only"),
-            })
-            .collect(),
-        selected: Tracks::ALL.iter().position(|one| *one == audio.tracks),
-        width: SELECT_WIDTH,
-    };
-    let tracks = select(&p, app, &mut ui.layer, tracks, |app, index| {
-        if let Some(tracks) = Tracks::ALL.get(index) {
-            app.edit(|settings| settings.audio.tracks = *tracks);
-        }
-    });
+    let tracks = segmented(
+        &p,
+        Segments {
+            key: "tracks",
+            label: "Tracks in a recording",
+            choices: Tracks::ALL
+                .iter()
+                .map(|tracks| match tracks {
+                    Tracks::Three => Choice::new("three", "Separate"),
+                    Tracks::MixOnly => Choice::new("mix", "One mix"),
+                })
+                .collect(),
+            selected: Tracks::ALL.iter().position(|one| *one == audio.tracks),
+            segment_width: 80.0,
+        },
+        |app, index| {
+            if let Some(tracks) = Tracks::ALL.get(index) {
+                app.edit(|settings| settings.audio.tracks = *tracks);
+            }
+        },
+    );
+    let missing_system = app
+        .missing_system_sound()
+        .map(|_| "The chosen app is not running, so all system sound records".to_owned());
     vec![
         section(
             &p,
-            "sources",
-            "Sources",
+            "system-sound-section",
+            "System sound",
             vec![
-                toggle(&p, "system-sound", "System sound", None, audio.system.enabled, |app| {
-                    app.edit(|settings| settings.audio.system.enabled ^= true);
-                }),
+                toggle(
+                    &p,
+                    "system-sound",
+                    "Record system sound",
+                    None,
+                    audio.system.enabled,
+                    |app| app.edit(|settings| settings.audio.system.enabled ^= true),
+                ),
+                device_row(&p, "system-source-row", "Source", missing_system, system),
                 setting(
                     &p,
                     "system-volume-row",
-                    "System sound volume",
+                    "Volume",
                     None,
                     volume(
                         &p,
@@ -273,48 +309,81 @@ fn audio(ui: &mut Ui<'_>) -> Vec<El> {
                         |settings, percent| settings.audio.system.volume_percent = percent,
                     ),
                 ),
-                toggle(&p, "microphone", "Microphone", None, audio.microphone.enabled, |app| {
-                    app.edit(|settings| settings.audio.microphone.enabled ^= true);
-                }),
-                setting(
-                    &p,
-                    "microphone-volume-row",
-                    "Microphone volume",
-                    None,
-                    volume(
-                        &p,
-                        "microphone-volume",
-                        "Microphone volume",
-                        audio.microphone.volume_percent,
-                        SLIDER_WIDTH,
-                        |settings, percent| settings.audio.microphone.volume_percent = percent,
-                    ),
-                ),
-            ],
-        ),
-        section(
-            &p,
-            "mixing",
-            "Tracks",
-            vec![
-                setting(
-                    &p,
-                    "tracks-row",
-                    "Tracks in a recording",
-                    Some("Three tracks keep system sound and microphone apart for later. About 2 MB more a minute.".into()),
-                    tracks,
-                ),
                 toggle(
                     &p,
                     "app-only",
                     "Only the recorded app's sound",
-                    Some("For a window or an app. A screen always records all system sound.".into()),
+                    Some("When recording a window or an app".into()),
                     audio.app_only,
                     |app| app.edit(|settings| settings.audio.app_only ^= true),
                 ),
             ],
         ),
+        microphone_section(&p, app, microphone),
+        section(
+            &p,
+            "mixing",
+            "Tracks",
+            vec![setting(
+                &p,
+                "tracks-row",
+                "Tracks in a recording",
+                Some("Separate keeps system sound and microphone apart for editing".into()),
+                tracks,
+            )],
+        ),
     ]
+}
+
+fn device_row(p: &Paint, key: &str, label: &str, missing: Option<String>, control: El) -> El {
+    match missing {
+        Some(why) => troubled_setting(p, key, label, why, control),
+        None => setting(p, key, label, None, control),
+    }
+}
+
+fn microphone_section(p: &Paint, app: &Ngine, microphone: El) -> El {
+    let p = *p;
+    let audio = app.settings.audio;
+    let missing_microphone = app
+        .missing_microphone()
+        .map(|_| "The chosen microphone is not connected, so the default one records".to_owned());
+    section(
+        &p,
+        "microphone-section",
+        "Microphone",
+        vec![
+            toggle(
+                &p,
+                "microphone",
+                "Record the microphone",
+                None,
+                audio.microphone.enabled,
+                |app| app.edit(|settings| settings.audio.microphone.enabled ^= true),
+            ),
+            device_row(
+                &p,
+                "microphone-device-row",
+                "Device",
+                missing_microphone,
+                microphone,
+            ),
+            setting(
+                &p,
+                "microphone-volume-row",
+                "Volume",
+                None,
+                volume(
+                    &p,
+                    "microphone-volume",
+                    "Microphone volume",
+                    audio.microphone.volume_percent,
+                    SLIDER_WIDTH,
+                    |settings, percent| settings.audio.microphone.volume_percent = percent,
+                ),
+            ),
+        ],
+    )
 }
 
 fn storage_label(storage: ReplayStorage) -> &'static str {
@@ -325,128 +394,97 @@ fn storage_label(storage: ReplayStorage) -> &'static str {
     }
 }
 
+fn storage_id(storage: ReplayStorage) -> &'static str {
+    match storage {
+        ReplayStorage::Auto => "auto",
+        ReplayStorage::Memory => "memory",
+        ReplayStorage::Disk => "disk",
+    }
+}
+
 fn storage_hint(storage: ReplayStorage) -> &'static str {
     match storage {
-        ReplayStorage::Auto => "In memory while it fits the budget, on disk beyond that",
+        ReplayStorage::Auto => "In memory up to the budget, on disk beyond it",
         ReplayStorage::Memory => "Always in memory, whatever the budget",
         ReplayStorage::Disk => "Always in short files in the buffer folder",
     }
 }
 
-fn budget_select(ui: &mut Ui<'_>) -> El {
-    let p = ui.p;
-    let app = ui.app;
-    let replay = &app.settings.replay;
-    let automatic = format!(
-        "Automatic, {}",
-        format::megabytes(u64::from(app.capabilities.default_memory_budget_mb))
-    );
-    let mut budgets = vec![Option_::new(automatic)];
-    budgets.extend(
-        MEMORY_BUDGETS_MB
-            .iter()
-            .map(|budget| Option_::new(format::megabytes(u64::from(*budget)))),
-    );
-    let budget = Select {
-        key: "memory-budget",
-        label: "Memory budget",
-        options: budgets,
-        selected: Some(replay.memory_budget_mb.map_or(0, |chosen| {
-            MEMORY_BUDGETS_MB
-                .iter()
-                .position(|budget| *budget == chosen)
-                .map_or(0, |at| at + 1)
-        })),
-        width: SELECT_WIDTH,
-    };
-    select(&p, app, &mut ui.layer, budget, |app, index| {
-        let chosen = index
-            .checked_sub(1)
-            .and_then(|at| MEMORY_BUDGETS_MB.get(at))
-            .copied();
-        app.edit(|settings| settings.replay.memory_budget_mb = chosen);
-    })
-}
-
 fn replay(ui: &mut Ui<'_>) -> Vec<El> {
     let p = ui.p;
-    let length = length_select(ui, "settings-replay-length", SELECT_WIDTH);
     let app = ui.app;
     let replay = &app.settings.replay;
-    let offered: Vec<u16> = REPLAY_LENGTHS
-        .into_iter()
-        .filter(|length| *length <= replay.length_seconds)
-        .collect();
-    let save = Select {
-        key: "save-length",
-        label: "Custom save length",
-        options: offered
-            .iter()
-            .map(|length| Option_::new(seconds(*length)))
-            .collect(),
-        selected: offered
-            .iter()
-            .position(|length| *length == replay.save_seconds),
-        width: SELECT_WIDTH,
-    };
-    let save = select(&p, app, &mut ui.layer, save, move |app, index| {
-        if let Some(length) = offered.get(index) {
-            app.edit(|settings| settings.replay.save_seconds = *length);
-        }
-    });
-    let storage = Select {
-        key: "storage",
-        label: "Where the buffer is kept",
-        options: ReplayStorage::ALL
-            .iter()
-            .map(|storage| Option_::new(storage_label(*storage)))
-            .collect(),
-        selected: ReplayStorage::ALL
-            .iter()
-            .position(|one| *one == replay.storage),
-        width: SELECT_WIDTH,
-    };
-    let storage = select(&p, app, &mut ui.layer, storage, |app, index| {
-        if let Some(storage) = ReplayStorage::ALL.get(index) {
-            app.edit(|settings| settings.replay.storage = *storage);
-        }
-    });
-    let budget = budget_select(ui);
-    vec![
-        section(
+    let cost = super::capture::cost_words(app, replay.length_seconds);
+    let length = amount_row(
+        ui,
+        "replay-length-row",
+        "Keep the last",
+        Amount::ReplayLength,
+        Some(cost),
+    );
+    let storage = segmented(
+        &p,
+        Segments {
+            key: "storage",
+            label: "Where the buffer is kept",
+            choices: ReplayStorage::ALL
+                .iter()
+                .map(|storage| Choice::new(storage_id(*storage), storage_label(*storage)))
+                .collect(),
+            selected: ReplayStorage::ALL
+                .iter()
+                .position(|one| *one == replay.storage),
+            segment_width: 80.0,
+        },
+        |app, index| {
+            if let Some(storage) = ReplayStorage::ALL.get(index) {
+                app.edit(|settings| settings.replay.storage = *storage);
+            }
+        },
+    );
+    let storage_kind = replay.storage;
+    let clear = replay.clear_after_save;
+    let at_start = replay.start_with_app;
+    let mut buffer = vec![
+        length,
+        setting(
             &p,
-            "buffer",
-            "Buffer",
-            vec![
-                setting(
-                    &p,
-                    "replay-length-row",
-                    "Keep the last",
-                    Some(cost_words(app, replay.length_seconds)),
-                    length,
-                ),
-                setting(
-                    &p,
-                    "storage-row",
-                    "Where it is kept",
-                    Some(storage_hint(replay.storage).into()),
-                    storage,
-                ),
-                setting(&p, "memory-budget-row", "Memory budget", None, budget),
-            ],
+            "storage-row",
+            "Where it is kept",
+            Some(storage_hint(storage_kind).into()),
+            storage,
         ),
+    ];
+    if storage_kind == ReplayStorage::Auto {
+        buffer.push(amount_row(
+            ui,
+            "memory-budget-row",
+            "Memory budget",
+            Amount::MemoryBudget,
+            None,
+        ));
+    }
+    let save = amount_row(
+        ui,
+        "save-length-row",
+        "Custom save length",
+        Amount::SaveLength,
+        None,
+    );
+    vec![
+        section(&p, "buffer", "Buffer", buffer),
         section(
             &p,
             "saving",
             "Saving",
             vec![
-                setting(&p, "save-length-row", "Custom save length", None, save),
+                save,
                 toggle(
                     &p,
                     "clear-after-save",
                     "Clear the buffer after a save",
                     None,
-                    replay.clear_after_save,
+                    clear,
                     |app| app.edit(|settings| settings.replay.clear_after_save ^= true),
                 ),
                 toggle(
@@ -454,7 +492,7 @@ fn replay(ui: &mut Ui<'_>) -> Vec<El> {
                     "replay-at-start",
                     "Turn on when ngine starts",
                     None,
-                    replay.start_with_app,
+                    at_start,
                     |app| app.edit(|settings| settings.replay.start_with_app ^= true),
                 ),
             ],
@@ -463,12 +501,16 @@ fn replay(ui: &mut Ui<'_>) -> Vec<El> {
 }
 
 fn hotkey_face(p: &Paint, app: &Ngine, slot: usize, key: &str) -> El {
-    if app.is_capturing(slot) {
-        return text(WAITING_FOR_KEYS)
-            .key(format!("{key}-waiting"))
-            .font(type_::LABEL)
-            .color(p.accent)
-            .a11y_hidden();
+    if let Some(capture) = app.capture.as_ref().filter(|capture| capture.slot == slot) {
+        let held = rune::modifier_keycaps(capture.held);
+        if held.is_empty() {
+            return text(WAITING_FOR_KEYS)
+                .key(format!("{key}-waiting"))
+                .font(type_::LABEL)
+                .color(p.accent)
+                .a11y_hidden();
+        }
+        return keycaps(p, &format!("{key}-held"), &held).a11y_hidden();
     }
     match hotkeys::keycaps(app.settings.hotkeys.all()[slot]) {
         Some(caps) => keycaps(p, &format!("{key}-caps"), &caps).a11y_hidden(),
@@ -491,13 +533,17 @@ fn hotkey(p: &Paint, app: &Ngine, slot: usize) -> El {
         .key(key.clone())
         .role("button")
         .label(format!("{label}: {current}"))
-        .help("Click, then press the keys to use")
+        .help("Click, then press the new keys")
         .w(HOTKEY_WIDTH)
         .h(CONTROL)
         .px(space::S2)
         .center()
         .radius(radius::MD)
-        .fill(p.t.control_track)
+        .fill(if capturing {
+            p.accent.alpha(0.1)
+        } else {
+            p.t.control_track
+        })
         .border(
             if capturing { 1.5 } else { p.hair },
             if capturing { p.accent } else { p.outline },
@@ -515,16 +561,32 @@ fn hotkey(p: &Paint, app: &Ngine, slot: usize) -> El {
             app.hotkey_input(slot, *input)
         })
         .child(hotkey_face(p, app, slot, &key));
-    let clear = Button::new(&format!("{key}-clear"), "Clear hotkey")
-        .only_icon(&icons::X)
-        .look(Look::Quiet)
-        .blocked(hotkeys::is_unset(accelerator).then(|| "No hotkey is set".to_owned()))
-        .build(p, move |app| app.clear_hotkey(slot));
+    let reset = if app.hotkey_changed(slot) {
+        Button::new(&format!("{key}-reset"), "Reset to default")
+            .only_icon(&icons::ROTATE_CCW)
+            .look(Look::Quiet)
+            .build(p, move |app| app.reset_hotkey(slot))
+    } else {
+        el().key(format!("{key}-reset-space"))
+            .size(CONTROL, CONTROL)
+            .a11y_hidden()
+    };
+    let clear = if hotkeys::is_unset(accelerator) {
+        el().key(format!("{key}-clear-space"))
+            .size(CONTROL, CONTROL)
+            .a11y_hidden()
+    } else {
+        Button::new(&format!("{key}-clear"), "Clear hotkey")
+            .only_icon(&icons::X)
+            .look(Look::Quiet)
+            .build(p, move |app| app.clear_hotkey(slot))
+    };
     let control = row()
         .key(format!("{key}-control"))
-        .gap(space::S1)
+        .gap(2.0)
         .center_y()
         .child(recorder)
+        .child(reset)
         .child(clear);
     let row_key = format!("{key}-row");
     let refusal = app
@@ -536,9 +598,7 @@ fn hotkey(p: &Paint, app: &Ngine, slot: usize) -> El {
         (Some(trouble), _) | (None, Some(trouble)) => {
             troubled_setting(p, &row_key, &label, trouble, control)
         }
-        (None, None) if capturing => {
-            setting(p, &row_key, &label, Some(RECORDER_HINT.into()), control)
-        }
+        (None, None) if capturing => setting(p, &row_key, &label, Some(recorder_hint()), control),
         (None, None) => setting(p, &row_key, &label, None, control),
     }
 }
@@ -565,16 +625,45 @@ fn hotkeys_section(ui: &Ui<'_>) -> Vec<El> {
 
 fn folder_row(p: &Paint, key: &str, label: &str, folder: Folder, path: &std::path::Path) -> El {
     let opened = path.to_owned();
+    let shown = path.display().to_string();
+    let place = row()
+        .key(format!("{key}-path"))
+        .role("button")
+        .label(format!("Open {shown} in {}", platform::FILE_MANAGER))
+        .help(format!("Open in {}", platform::FILE_MANAGER))
+        .h(CONTROL)
+        .min_w(0.0)
+        .shrink()
+        .px(space::S2)
+        .gap(space::S2)
+        .center_y()
+        .radius(radius::MD)
+        .fill(p.t.control_track)
+        .border(p.hair, p.outline)
+        .hover(p.t.hover)
+        .focusable(true)
+        .on_press(move |app: &mut Ngine| app.open_folder(&opened))
+        .child(icon(&icons::FOLDER_OPEN, 14.0).color(p.faint).a11y_hidden())
+        .child(
+            text(shown)
+                .key(format!("{key}-value"))
+                .font(type_::LABEL)
+                .color(p.t.text)
+                .truncate()
+                .min_w(0.0)
+                .a11y_hidden(),
+        );
     let controls = row()
         .key(format!("{key}-controls"))
-        .gap(space::S1 + 2.0)
-        .child(Button::new(&format!("{key}-change"), "Change…").build_tx(p, choose_folder(folder)))
-        .child(
-            Button::new(&format!("{key}-open"), "Open")
-                .help(format!("Open in {}", platform::FILE_MANAGER))
-                .build(p, move |app| app.open_folder(&opened)),
-        );
-    setting(p, key, label, Some(path.display().to_string()), controls)
+        .gap(space::S2)
+        .center_y()
+        .w(300.0)
+        .shrink()
+        .min_w(0.0)
+        .justify_end()
+        .child(place)
+        .child(Button::new(&format!("{key}-change"), "Change…").build_tx(p, choose_folder(folder)));
+    setting(p, key, label, None, controls)
 }
 
 fn room(minutes: u64) -> String {
@@ -595,7 +684,7 @@ fn storage(ui: &Ui<'_>) -> Vec<El> {
         let per_minute = app.megabytes_per_minute().max(1) * 1_000_000;
         (bytes / per_minute > 0).then(|| {
             format!(
-                "Room for about {} of recording at the current quality",
+                "Room for about {} of recording at this quality",
                 room(bytes / per_minute)
             )
         })
@@ -654,7 +743,8 @@ fn about(ui: &Ui<'_>) -> Vec<El> {
     let p = &ui.p;
     let mut words = col()
         .key("about-words")
-        .padding(space::S3)
+        .px(space::S3 + 2.0)
+        .py(space::S3)
         .gap(space::S1)
         .child(
             text(format!("{NAME} {VERSION}"))
@@ -695,8 +785,16 @@ fn reset_question(ui: &mut Ui<'_>, section: Section) {
     );
 }
 
-pub fn view(ui: &mut Ui<'_>) -> El {
+fn close(app: &mut Ngine) {
+    app.close_settings();
+}
+
+/// The settings, in a sheet over the window: the sections down the side,
+/// the chosen one beside them. Escape, the close button and a press outside
+/// close it.
+pub fn sheet(ui: &mut Ui<'_>) {
     let p = ui.p;
+    let start = ui.layer.len();
     let section = ui.app.section;
     let rows = match section {
         Section::Video => video(ui),
@@ -710,51 +808,69 @@ pub fn view(ui: &mut Ui<'_>) -> El {
     if let Some(Popup::ConfirmReset(asked)) = ui.app.popup {
         reset_question(ui, asked);
     }
-    let mut head = row()
-        .key("section-head")
-        .center_y()
-        .h(CONTROL)
-        .child(
-            text(section_label(section))
-                .key("section-title")
-                .role("heading")
-                .level(2)
-                .font(super::widgets::HEADING)
-                .color(p.t.text),
-        )
-        .child(spacer());
-    if section != Section::About {
-        head = head.child(
-            Button::new("section-reset", "Reset")
-                .icon(&icons::ROTATE_CCW)
-                .look(Look::Quiet)
-                .help(format!(
-                    "Put the {} settings back to their defaults",
-                    section_label(section).to_lowercase()
-                ))
-                .build(&p, move |app| app.open_popup(Popup::ConfirmReset(section))),
-        );
-    }
-    let list_width = if ui.narrow() {
+    let floating = ui.layer.split_off(start);
+    let width = (ui.window.0 - 2.0 * SHEET_MARGIN).clamp(1.0, WIDEST_SHEET);
+    let height = (ui.window.1 - 2.0 * SHEET_MARGIN).clamp(1.0, TALLEST_SHEET);
+    let list_width = if width < 760.0 {
         NARROW_LIST_WIDTH
     } else {
         LIST_WIDTH
     };
-    let width =
-        (ui.main_width() - list_width - 2.0 * super::PAGE_PADDING).clamp(1.0, WIDEST_SECTION);
-    let content = col()
+    let mut content = col()
         .key(format!("settings-{}", section_id(section)))
-        .w(width)
-        .self_center()
-        .py(super::PAGE_PADDING)
-        .gap(space::S6 - 4.0)
-        .child(head)
-        .children(rows);
-    row()
-        .key("settings")
         .w_full()
-        .grow(1.0)
-        .min_h(0.0)
-        .child(list(ui))
-        .child(page("settings", content).grow(1.0).min_w(0.0))
+        .px(space::S6)
+        .pt(space::S6 + space::S3)
+        .pb(space::S6)
+        .gap(space::S6)
+        .children(rows);
+    if section != Section::About {
+        content = content.child(
+            row().key("section-foot").child(
+                Button::new("section-reset", "Reset to defaults")
+                    .look(Look::Quiet)
+                    .help(format!(
+                        "Put the {} settings back to what a fresh install has",
+                        section_label(section).to_lowercase()
+                    ))
+                    .build(&p, move |app| app.open_popup(Popup::ConfirmReset(section))),
+            ),
+        );
+    }
+    let body = super::page("settings", content).grow(1.0).min_w(0.0);
+    let panel = row()
+        .key("settings")
+        .role("dialog")
+        .label("Settings")
+        .w(width)
+        .h(height)
+        .radius(SHEET_RADIUS)
+        .clip_rounded(SHEET_RADIUS)
+        .fill(p.t.bg)
+        .border(p.hair, p.outline)
+        .shadow(24.0, 64.0, p.t.shadow)
+        .modal(true, close)
+        .child(list(ui, list_width))
+        .child(body)
+        .child(
+            Button::new("settings-close", "Close")
+                .only_icon(&icons::X)
+                .look(Look::Quiet)
+                .help("Close (Esc)")
+                .build(&p, Ngine::close_settings)
+                .absolute(width - CONTROL - space::S3, space::S3),
+        );
+    ui.layer.push(
+        col()
+            .key("settings-scrim")
+            .role("none")
+            .absolute(0.0, 0.0)
+            .w_full()
+            .h_full()
+            .center()
+            .fill(Color::BLACK.alpha(0.45))
+            .on_press(close)
+            .child(panel),
+    );
+    ui.layer.extend(floating);
 }

@@ -18,6 +18,18 @@ pub const LOUDEST_PERCENT: u16 = 200;
 pub const PERCENT_STEP: u16 = 10;
 pub const FULL_VOLUME: u8 = 100;
 const FALLBACK_FRAME: Duration = Duration::from_micros(16_667);
+pub const CONTROLS_LINGER_SECONDS: f64 = 2.5;
+
+/// How the video fills the window while it is watched full screen.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Watching {
+    /// When the pointer last moved, on the app's clock.
+    pub moved_at: f64,
+    /// Whether the pointer rests on the controls, which keeps them shown.
+    pub on_controls: bool,
+    /// Whether ngine also took the window full screen, so it gives it back.
+    pub took_the_screen: bool,
+}
 
 /// One sound source of the recording, as the clip will hold it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -78,6 +90,8 @@ pub struct Editor {
     pub exporting: Exporting,
     pub picture: Pixels,
     pub failure: Option<String>,
+    pub hovered: bool,
+    pub watching: Option<Watching>,
     frame: Duration,
     awaiting_picture: bool,
     volume_percent: Arc<AtomicU8>,
@@ -116,6 +130,8 @@ impl Editor {
             exporting: Exporting::Idle,
             picture: Pixels::new(),
             failure: None,
+            hovered: false,
+            watching: None,
             frame: FALLBACK_FRAME,
             awaiting_picture: true,
             speaker: Speaker::open(player.sound(), Arc::clone(&volume_percent)),
@@ -151,6 +167,8 @@ impl Editor {
             exporting: Exporting::Idle,
             picture,
             failure: None,
+            hovered: false,
+            watching: None,
             frame: FALLBACK_FRAME,
             awaiting_picture: false,
             volume_percent: Arc::new(AtomicU8::new(FULL_VOLUME)),
@@ -166,6 +184,17 @@ impl Editor {
             self.follow_the_player();
             std::thread::sleep(Duration::from_millis(5));
         }
+    }
+
+    /// Whether the transport and timeline show over the video watched full
+    /// screen at `clock`: always while paused, and while playing until the
+    /// pointer has been still for a moment away from them.
+    pub fn controls_shown(&self, clock: f64) -> bool {
+        self.watching.is_none_or(|watching| {
+            !self.playing
+                || watching.on_controls
+                || clock - watching.moved_at < CONTROLS_LINGER_SECONDS
+        })
     }
 
     /// Whether the preview has no sound device to play through.

@@ -267,8 +267,7 @@ fn the_editor_shows_the_preview_the_clip_and_the_markers_at_their_times() {
         "clip-system-on",
         "clip-microphone-volume",
         "clip-microphone-on",
-        "cut-fast",
-        "cut-exact",
+        "precise-trim",
         "export",
     ] {
         assert!(shows(&runtime, key), "{key}");
@@ -343,8 +342,10 @@ fn each_sound_source_can_be_muted_and_the_cut_chosen() {
     assert!(mix.microphone.abs() < f32::EPSILON);
     assert!((mix.system - 1.0).abs() < f32::EPSILON);
 
-    press(&mut runtime, "cut-exact");
+    press(&mut runtime, "precise-trim");
     assert_eq!(editor(&runtime).cut, Cut::Exact);
+    press(&mut runtime, "precise-trim");
+    assert_eq!(editor(&runtime).cut, Cut::Fast);
 
     let fixed = scene("editor-mix-only");
     assert!(!shows(&fixed, "clip-sound"));
@@ -379,4 +380,60 @@ fn an_export_shows_its_progress_its_file_or_its_failure() {
         Editor::sample(Path::new("x.mp4")).exporting,
         Exporting::Idle
     ));
+}
+
+#[test]
+fn the_full_screen_control_shows_on_hover_and_f_and_escape_enter_and_leave() {
+    let mut runtime = scene("editor");
+    assert!(!shows(&runtime, "full-screen"));
+    runtime.update(|app, _| {
+        if let Some(editor) = &mut app.editor {
+            editor.hovered = true;
+        }
+    });
+    settle(&mut runtime);
+    assert!(shows(&runtime, "full-screen"));
+    press(&mut runtime, "full-screen");
+    assert!(runtime.state.watching());
+    assert!(shows(&runtime, "watching"));
+    assert!(!shows(&runtime, "sidebar"));
+    assert!(shows(&runtime, "watching-controls"));
+    letter(&mut runtime, "i");
+    assert_eq!(editor(&runtime).start, seconds(31));
+    key(&mut runtime, Key::Escape, false);
+    assert!(!runtime.state.watching());
+    assert!(shows(&runtime, "sidebar"));
+    letter(&mut runtime, "f");
+    assert!(runtime.state.watching());
+    letter(&mut runtime, "f");
+    assert!(!runtime.state.watching());
+}
+
+#[test]
+fn the_controls_over_a_playing_video_hide_when_the_pointer_rests_and_return_when_it_moves() {
+    let mut runtime = scene("editor");
+    letter(&mut runtime, "f");
+    runtime.update(|app, _| {
+        if let Some(editor) = &mut app.editor {
+            editor.playing = true;
+        }
+    });
+    settle(&mut runtime);
+    assert!(shows(&runtime, "watching-controls"));
+    runtime.update(|app, _| {
+        app.sync(app.clock() + crate::editor::CONTROLS_LINGER_SECONDS + 0.1);
+    });
+    settle(&mut runtime);
+    assert!(!shows(&runtime, "watching-controls"));
+    runtime.update(|app, _| app.pointer_moved(false));
+    settle(&mut runtime);
+    assert!(shows(&runtime, "watching-controls"));
+    runtime.update(|app, _| {
+        if let Some(editor) = &mut app.editor {
+            editor.playing = false;
+        }
+        app.sync(app.clock() + 10.0);
+    });
+    settle(&mut runtime);
+    assert!(shows(&runtime, "watching-controls"));
 }

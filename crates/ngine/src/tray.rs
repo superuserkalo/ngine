@@ -165,12 +165,7 @@ mod tests {
     }
 
     fn target() -> Target {
-        Target {
-            id: "screen".into(),
-            kind: TargetKind::Screen,
-            name: "Screen".into(),
-            detail: String::new(),
-        }
+        Target::new("screen", TargetKind::Screen, "Screen", "")
     }
 
     fn recording() -> Recording {

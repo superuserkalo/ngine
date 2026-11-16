@@ -63,6 +63,9 @@ impl Ngine {
         if shortcut.require_modifier().is_err() {
             return self.refuse_hotkey(slot, hotkeys::NEEDS_MODIFIER.to_owned());
         }
+        if let Some(what) = hotkeys::reserved(shortcut) {
+            return self.refuse_hotkey(slot, format!("{keys} is kept by the system for {what}"));
+        }
         if let Some(other) = hotkeys::taken_by(&self.settings.hotkeys, slot, shortcut) {
             let action = hotkeys::label(other, &self.settings);
             return self.refuse_hotkey(slot, format!("{keys} is already used for “{action}”"));
@@ -75,6 +78,25 @@ impl Ngine {
             return self.refuse_hotkey(slot, format!("{keys} was not accepted: {problem}"));
         }
         self.capture = None;
+    }
+
+    /// Puts the hotkey in `slot` back to what a fresh install has. When
+    /// another action took that key since, the field says so instead.
+    pub fn reset_hotkey(&mut self, slot: usize) {
+        let fresh = self.default_settings().hotkeys.all()[slot].to_owned();
+        match hotkeys::parse(&fresh) {
+            Some(shortcut) => {
+                self.begin_hotkey(slot);
+                self.propose_hotkey(slot, &shortcut);
+            }
+            None => self.clear_hotkey(slot),
+        }
+    }
+
+    /// Whether the hotkey in `slot` differs from a fresh install's.
+    pub fn hotkey_changed(&self, slot: usize) -> bool {
+        let fresh = self.default_settings();
+        fresh.hotkeys.all()[slot] != self.settings.hotkeys.all()[slot]
     }
 
     pub fn clear_hotkey(&mut self, slot: usize) {

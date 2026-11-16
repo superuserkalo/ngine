@@ -4,9 +4,9 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use super::{
-    Audio, Capabilities, Codec, Engine, Event, Levels, Problem, Quality, Recording,
-    RecordingRequest, Refusal, Replay, ReplayRequest, ReplaySpan, ReplayStorage, Status, Target,
-    TargetKind, Tracks, Video,
+    Audio, Capabilities, Codec, Device, Engine, Event, Levels, Problem, Quality, Recording,
+    RecordingRequest, Refusal, Replay, ReplayRequest, ReplaySpan, ReplayStorage, Status,
+    SystemSound, Target, TargetKind, Tracks, Video,
 };
 
 const PICKER_DELAY: Duration = Duration::from_millis(600);
@@ -15,8 +15,8 @@ const KEYFRAME_INTERVAL_MS: u128 = 1000;
 const AUDIO_TRACK_KBPS: u64 = 128;
 const BYTES_PER_MB: u64 = 1_000_000;
 const SAMPLE_FREE_BYTES: u64 = 212_400_000_000;
-const SAMPLE_SYSTEM_LEVEL: u32 = 62;
-const SAMPLE_MICROPHONE_LEVEL: u32 = 34;
+const SAMPLE_SYSTEM_PEAK: u32 = 3_200;
+const SAMPLE_MICROPHONE_PEAK: u32 = 450;
 
 #[derive(Clone)]
 pub enum Clock {
@@ -144,12 +144,12 @@ impl Inner {
         let now = self.clock.now();
         if self.pick_due.is_some_and(|due| due <= now) {
             self.pick_due = None;
-            self.events.push(Event::TargetPicked(Target {
-                id: "picked-window".into(),
-                kind: TargetKind::Window,
-                name: "Counter-Strike 2".into(),
-                detail: "Chosen in the system picker".into(),
-            }));
+            self.events.push(Event::TargetPicked(Target::new(
+                "picked-window",
+                TargetKind::Window,
+                "Counter-Strike 2",
+                "Chosen in the system picker",
+            )));
         }
         let (done, waiting): (Vec<_>, Vec<_>) = std::mem::take(&mut self.saves)
             .into_iter()
@@ -216,29 +216,36 @@ fn screens() -> Vec<Target> {
     ]
 }
 
+fn window(id: &str, title: &str, app: &str, owner: &str) -> Target {
+    Target::new(id, TargetKind::Window, title, app).owned_by(owner)
+}
+
 fn windows() -> Vec<Target> {
     vec![
-        target(TargetKind::Window, "window-1", "Counter-Strike 2", "cs2"),
-        target(TargetKind::Window, "window-2", "Discord", "Voice connected"),
-        target(TargetKind::Window, "window-3", "Firefox", "Patch notes"),
+        window("window-1", "Counter-Strike 2", "Counter-Strike 2", "app-1"),
+        window("window-2", "#general · Squad", "Discord", "app-2"),
+        window("window-3", "Voice connected", "Discord", "app-2").elsewhere(true),
+        window(
+            "window-4",
+            "Patch notes – Counter-Strike 2",
+            "Firefox",
+            "app-3",
+        ),
+        window("window-5", "Ranked map pool explained", "Firefox", "app-3"),
+        window("window-6", "Inbox", "Firefox", "app-3").elsewhere(true),
     ]
 }
 
 fn apps() -> Vec<Target> {
     vec![
-        target(TargetKind::App, "app-1", "Counter-Strike 2", "1 window"),
-        target(TargetKind::App, "app-2", "Discord", "2 windows"),
-        target(TargetKind::App, "app-3", "Firefox", "3 windows"),
+        Target::new("app-1", TargetKind::App, "Counter-Strike 2", ""),
+        Target::new("app-2", TargetKind::App, "Discord", ""),
+        Target::new("app-3", TargetKind::App, "Firefox", ""),
     ]
 }
 
 fn target(kind: TargetKind, id: &str, name: &str, detail: &str) -> Target {
-    Target {
-        id: id.into(),
-        kind,
-        name: name.into(),
-        detail: detail.into(),
-    }
+    Target::new(id, kind, name, detail)
 }
 
 impl Engine for FakeEngine {
@@ -355,6 +362,26 @@ impl Engine for FakeEngine {
         Ok(at)
     }
 
+    fn microphones(&mut self) -> Vec<Device> {
+        let device = |id: &str, name: &str, is_default: bool| Device {
+            id: id.into(),
+            name: name.into(),
+            is_default,
+        };
+        vec![
+            device("built-in", "MacBook Pro Microphone", true),
+            device("usb-mv7", "Shure MV7", false),
+        ]
+    }
+
+    fn system_sounds(&mut self) -> Vec<SystemSound> {
+        let app = |id: u64, name: &str| SystemSound::App {
+            id,
+            name: name.into(),
+        };
+        vec![app(2, "Discord"), app(3, "Firefox")]
+    }
+
     fn status(&self) -> Status {
         let inner = self.inner.borrow();
         let now = inner.clock.now();
@@ -399,14 +426,14 @@ fn sample_levels(audio: Audio) -> Levels {
     let level = |source: super::AudioSource, loudest: u32| {
         let scaled = loudest * u32::from(source.volume_percent) / 100;
         if source.enabled {
-            u8::try_from(scaled).unwrap_or(u8::MAX)
+            u16::try_from(scaled).unwrap_or(Levels::FULL_SCALE)
         } else {
             0
         }
     };
     Levels {
-        system: level(audio.system, SAMPLE_SYSTEM_LEVEL),
-        microphone: level(audio.microphone, SAMPLE_MICROPHONE_LEVEL),
+        system: level(audio.system, SAMPLE_SYSTEM_PEAK),
+        microphone: level(audio.microphone, SAMPLE_MICROPHONE_PEAK),
     }
 }
 
@@ -453,6 +480,7 @@ mod tests {
             target: screens().remove(0),
             video: video(),
             audio: audio(),
+            inputs: super::super::Inputs::default(),
             length,
             storage: ReplayStorage::Auto,
             memory_budget_mb: 512,

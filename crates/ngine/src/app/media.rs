@@ -62,7 +62,6 @@ impl Ngine {
         self.capture = None;
         match screen {
             Screen::Library => self.refresh_library(),
-            Screen::Settings => self.measure_free_space(),
             Screen::Capture | Screen::Editor => {}
         }
     }
@@ -188,6 +187,49 @@ impl Ngine {
             Some(WAITING)
         } else {
             None
+        }
+    }
+
+    /// Fills the window with the video, the controls over it. With
+    /// `take_the_screen`, the window goes full screen too and comes back
+    /// when watching ends.
+    pub fn watch_full_screen(&mut self, take_the_screen: bool) {
+        let clock = self.clock;
+        if let Some(editor) = &mut self.editor {
+            editor.watching = Some(crate::editor::Watching {
+                moved_at: clock,
+                on_controls: false,
+                took_the_screen: take_the_screen,
+            });
+        }
+        self.popup = None;
+    }
+
+    /// Ends full screen watching. Returns whether ngine had taken the window
+    /// full screen, so the caller gives it back.
+    pub fn stop_watching(&mut self) -> bool {
+        self.editor
+            .as_mut()
+            .and_then(|editor| editor.watching.take())
+            .is_some_and(|watching| watching.took_the_screen)
+    }
+
+    pub fn watching(&self) -> bool {
+        self.editor
+            .as_ref()
+            .is_some_and(|editor| editor.watching.is_some())
+    }
+
+    /// The pointer moved over the video watched full screen.
+    pub fn pointer_moved(&mut self, on_controls: bool) {
+        let clock = self.clock;
+        if let Some(watching) = self
+            .editor
+            .as_mut()
+            .and_then(|editor| editor.watching.as_mut())
+        {
+            watching.moved_at = clock;
+            watching.on_controls = on_controls;
         }
     }
 

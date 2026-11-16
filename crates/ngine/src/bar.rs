@@ -265,12 +265,7 @@ mod tests {
     use crate::engine::{Recording, Replay, Target, TargetKind};
 
     fn target() -> Target {
-        Target {
-            id: "screen-1".into(),
-            kind: TargetKind::Screen,
-            name: "Built-in display".into(),
-            detail: String::new(),
-        }
+        Target::new("screen-1", TargetKind::Screen, "Built-in display", "")
     }
 
     fn recording(seconds: u64) -> BarState {

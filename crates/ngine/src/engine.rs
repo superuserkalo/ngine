@@ -22,6 +22,42 @@ pub struct Target {
     pub kind: TargetKind,
     pub name: String,
     pub detail: String,
+    /// For a window, the id of the app target it belongs to, when the system
+    /// lists apps.
+    pub owner: Option<String>,
+    /// For a window, that it is minimised or on another desktop or Space,
+    /// so it cannot be seen right now.
+    pub elsewhere: bool,
+}
+
+impl Target {
+    pub fn new(
+        id: impl Into<String>,
+        kind: TargetKind,
+        name: impl Into<String>,
+        detail: impl Into<String>,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            kind,
+            name: name.into(),
+            detail: detail.into(),
+            owner: None,
+            elsewhere: false,
+        }
+    }
+
+    #[must_use]
+    pub fn owned_by(mut self, app: impl Into<String>) -> Self {
+        self.owner = Some(app.into());
+        self
+    }
+
+    #[must_use]
+    pub fn elsewhere(mut self, elsewhere: bool) -> Self {
+        self.elsewhere = elsewhere;
+        self
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -89,11 +125,43 @@ pub struct Audio {
     pub app_only: bool,
 }
 
+/// A sound input the system offers: a microphone, or an output whose sound
+/// can be recorded.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Device {
+    pub id: String,
+    pub name: String,
+    pub is_default: bool,
+}
+
+/// Which system sound is recorded.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum SystemSound {
+    /// Everything the computer plays, apart from ngine itself.
+    #[default]
+    Everything,
+    /// Only what one app plays, where the system can separate it.
+    App { id: u64, name: String },
+    /// Everything played through one output device, where the system records
+    /// per device.
+    Output(Device),
+}
+
+/// The devices a capture takes its sound from.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Inputs {
+    /// A [`Device::id`] from [`Engine::microphones`], or the system's
+    /// default microphone, which follows the system when it changes.
+    pub microphone: Option<String>,
+    pub system: SystemSound,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RecordingRequest {
     pub target: Target,
     pub video: Video,
     pub audio: Audio,
+    pub inputs: Inputs,
     pub folder: PathBuf,
 }
 
@@ -102,6 +170,7 @@ pub struct ReplayRequest {
     pub target: Target,
     pub video: Video,
     pub audio: Audio,
+    pub inputs: Inputs,
     pub length: Duration,
     pub storage: ReplayStorage,
     pub memory_budget_mb: u32,
@@ -131,11 +200,17 @@ pub struct Status {
     pub levels: Option<Levels>,
 }
 
-/// How loud each source is right now, from 0 (silent) to 100 (full scale).
+/// The loudest sample of each source since the last report, after its
+/// volume, in ten-thousandths of full scale: 0 is silence and
+/// [`Levels::FULL_SCALE`] the loudest a sample can be.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Levels {
-    pub system: u8,
-    pub microphone: u8,
+    pub system: u16,
+    pub microphone: u16,
+}
+
+impl Levels {
+    pub const FULL_SCALE: u16 = 10_000;
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -254,6 +329,13 @@ pub trait Engine {
     fn add_marker(&mut self) -> Result<Duration, Refusal>;
 
     fn status(&self) -> Status;
+
+    /// Every microphone the system offers, freshly read.
+    fn microphones(&mut self) -> Vec<Device>;
+
+    /// The system sound choices besides [`SystemSound::Everything`] that this
+    /// system can record: apps playing sound, or output devices.
+    fn system_sounds(&mut self) -> Vec<SystemSound>;
 
     /// The capped bit rate of video and audio together, in bits per second.
     fn bit_rate(&self, video: Video, audio: Audio) -> u64;

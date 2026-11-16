@@ -12,6 +12,28 @@ pub const FILE_MANAGER: &str = "Explorer";
 pub const TRASH: &str = "Recycle Bin";
 pub const SYSTEM_SETTINGS: &str = "Settings";
 pub const LISTS_CAPTURE_TARGETS: bool = true;
+pub const ERASE_KEY: &str = "Backspace";
+
+/// Keys Windows keeps for itself or that every Windows app answers, with
+/// what they do there.
+pub const RESERVED_SHORTCUTS: &[(&str, &str)] = &[
+    ("alt+f4", "closing a window"),
+    ("alt+tab", "switching windows"),
+    ("ctrl+alt+delete", "the security screen"),
+    ("ctrl+shift+escape", "Task Manager"),
+    ("super+l", "locking the computer"),
+    ("super+d", "showing the desktop"),
+    ("super+tab", "Task View"),
+    ("super+e", "File Explorer"),
+    ("super+r", "Run"),
+    ("super+i", "Settings"),
+    ("super+shift+s", "Snipping Tool"),
+    ("super+alt+r", "Game Bar recording"),
+    ("super+alt+g", "Game Bar recording"),
+    ("super+g", "Game Bar"),
+    ("ctrl+super+left", "the desktop to the left"),
+    ("ctrl+super+right", "the desktop to the right"),
+];
 
 const STARTUP_FILE: &str = "Microsoft\\Windows\\Start Menu\\Programs\\Startup\\ngine.cmd";
 

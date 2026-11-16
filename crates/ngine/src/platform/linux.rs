@@ -12,6 +12,20 @@ pub const FILE_MANAGER: &str = "file manager";
 pub const TRASH: &str = "Trash";
 pub const SYSTEM_SETTINGS: &str = "the system settings";
 pub const LISTS_CAPTURE_TARGETS: bool = false;
+pub const ERASE_KEY: &str = "Backspace";
+
+/// Keys Linux desktops commonly keep for themselves, with what they do
+/// there.
+pub const RESERVED_SHORTCUTS: &[(&str, &str)] = &[
+    ("alt+f4", "closing a window"),
+    ("alt+tab", "switching windows"),
+    ("ctrl+alt+delete", "logging out"),
+    ("ctrl+alt+t", "opening a terminal"),
+    ("super+l", "locking the screen"),
+    ("super+tab", "switching apps"),
+    ("ctrl+alt+left", "the workspace to the left"),
+    ("ctrl+alt+right", "the workspace to the right"),
+];
 
 const ENTRY_FILE: &str = "autostart/ngine.desktop";
 

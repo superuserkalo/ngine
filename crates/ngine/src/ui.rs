@@ -1,6 +1,7 @@
 use rune::tok::{radius, space, type_};
 use rune::{
-    Color, Cx, El, FileDialogOptions, Icon, ScrollSpec, Tx, col, el, icon, row, spacer, text,
+    ChromeInsets, Color, Cx, El, FileDialogOptions, Icon, ScrollSpec, Titlebar, Tx, col, el, icon,
+    row, spacer, text,
 };
 
 use crate::app::{Folder, NAME, Ngine, Screen, Section, WINDOW_SIZE};
@@ -16,18 +17,18 @@ pub mod palette;
 mod settings;
 mod widgets;
 
-use widgets::{Button, HEADING, ICON, Look, Paint, STRONG, TITLE, caption};
+use widgets::{Button, HEADING, ICON, Look, NUMBERS, Paint, STRONG, caption};
 
 pub const EARLY_NOTE: &str = "Early build. So far it has only been tested on macOS.";
 pub const SIMULATED_NOTE: &str =
     "Capture is simulated on this system, so nothing is written to disk.";
 
-const SIDEBAR_WIDTH: f32 = 172.0;
+const SIDEBAR_WIDTH: f32 = 184.0;
 const RAIL_WIDTH: f32 = 56.0;
-const NAV_HEIGHT: f32 = 34.0;
-const DOT: f32 = 8.0;
-const WINDOW_BUTTONS_HEIGHT: f32 = 24.0;
-pub const PAGE_PADDING: f32 = 20.0;
+const NAV_HEIGHT: f32 = 32.0;
+const DOT: f32 = 6.0;
+pub const TITLEBAR: f32 = 40.0;
+pub const PAGE_PADDING: f32 = 24.0;
 pub const NARROW_BELOW: f32 = 900.0;
 const WIDEST_CONTENT: f32 = 920.0;
 
@@ -38,6 +39,13 @@ pub struct Ui<'a> {
     pub app: &'a Ngine,
     pub layer: Vec<El>,
     pub window: (f32, f32),
+    pub chrome: ChromeInsets,
+}
+
+/// The titlebar ngine draws in place of the system's: the window's own
+/// controls sit over it, and its empty parts move the window.
+pub fn titlebar() -> Titlebar {
+    Titlebar::new(TITLEBAR).traffic_lights(16.0, 13.0)
 }
 
 impl Ui<'_> {
@@ -62,12 +70,18 @@ impl Ui<'_> {
 /// The column a screen lays its content in: padded, and no wider than reads
 /// well on a large monitor.
 pub fn sheet(ui: &Ui<'_>, key: &str) -> El {
+    let top = if ui.chrome.height > 0.0 {
+        space::S1
+    } else {
+        PAGE_PADDING
+    };
     col()
         .key(key)
         .w(ui.content_width())
         .self_center()
-        .py(PAGE_PADDING)
-        .gap(space::S6 - 4.0)
+        .pt(top)
+        .pb(PAGE_PADDING)
+        .gap(space::S6)
 }
 
 /// The keys of the hotkey in `slot`, when it is set and works.
@@ -114,15 +128,6 @@ pub fn page(key: &str, content: El) -> El {
         .child(content)
 }
 
-pub fn page_title(p: &Paint, key: &str, title: &str) -> El {
-    text(title)
-        .key(key)
-        .role("heading")
-        .level(1)
-        .font(TITLE)
-        .color(p.t.text)
-}
-
 fn nav_item(ui: &Ui<'_>, screen: Screen, key: &str, label: &str, glyph: &'static Icon) -> El {
     let p = &ui.p;
     let shown = match ui.app.screen {
@@ -154,99 +159,108 @@ fn nav_item(ui: &Ui<'_>, screen: Screen, key: &str, label: &str, glyph: &'static
         .focusable(true)
         .on_press(move |app: &mut Ngine| app.show(screen))
         .child(icon(glyph, 16.0).color(ink).a11y_hidden());
+    let live = (screen == Screen::Capture).then(|| live_mark(ui)).flatten();
     if ui.narrow() {
         item = item.center().help(label);
+        if let Some((_, words, colour)) = live {
+            item = item.help(format!("{label} · {words}")).child(
+                el().key(format!("{key}-live"))
+                    .size(DOT, DOT)
+                    .radius(DOT / 2.0)
+                    .fill(colour)
+                    .absolute(RAIL_WIDTH / 2.0 + 4.0, 7.0)
+                    .a11y_hidden(),
+            );
+        }
     } else {
         item = item
-            .px(space::S3 - 2.0)
+            .px(space::S2 + 2.0)
             .child(text(label).font(type_::LABEL).color(ink).a11y_hidden());
+        if let Some((mark, words, _)) = live {
+            item = item
+                .label(format!("{label}, {words}"))
+                .child(spacer())
+                .child(mark);
+        }
     }
     item
 }
 
-fn status_words(app: &Ngine) -> Vec<(&'static str, bool, String)> {
-    let mut lines = Vec::new();
-    if let Some(recording) = &app.status.recording {
-        lines.push((
-            "status-recording",
-            true,
-            format!("Recording {}", format::timer(recording.elapsed)),
-        ));
-    }
-    if let Some(replay) = &app.status.replay {
-        lines.push((
-            "status-replay",
-            false,
-            format!("Replay on · {}", format::length(replay.length)),
-        ));
-    }
-    lines
-}
-
-fn status(ui: &Ui<'_>) -> El {
+/// What the Capture item shows while something is live: a red dot and the
+/// time while recording, a quiet mark while instant replay holds the past.
+fn live_mark(ui: &Ui<'_>) -> Option<(El, String, Color)> {
     let p = &ui.p;
-    let lines = status_words(ui.app);
-    let spoken = if lines.is_empty() {
-        "Ready".to_owned()
-    } else {
-        lines
-            .iter()
-            .map(|(_, _, words)| words.clone())
-            .collect::<Vec<_>>()
-            .join(", ")
-    };
-    let line = |key: &str, colour: Color, words: String| {
-        let mut one = row().key(key).gap(space::S2).center_y().child(
-            el().key(format!("{key}-dot"))
-                .size(DOT, DOT)
-                .radius(DOT / 2.0)
-                .fill(colour)
-                .a11y_hidden(),
-        );
-        if !ui.narrow() {
-            one = one.child(
-                text(words)
-                    .key(format!("{key}-text"))
-                    .font(type_::LABEL.features("tnum"))
-                    .color(p.t.text)
+    let status = &ui.app.status;
+    if let Some(recording) = &status.recording {
+        let time = format::timer(recording.elapsed);
+        let mark = row()
+            .key("live-recording")
+            .gap(space::S1 + 2.0)
+            .center_y()
+            .child(
+                el().key("live-recording-dot")
+                    .size(DOT, DOT)
+                    .radius(DOT / 2.0)
+                    .fill(p.danger)
+                    .a11y_hidden(),
+            )
+            .child(
+                text(time.clone())
+                    .key("live-recording-time")
+                    .font(NUMBERS)
+                    .color(p.t.text_secondary)
                     .a11y_hidden(),
             );
-        }
-        one
-    };
-    let mut block = col()
-        .key("status")
+        return Some((mark, format!("recording {time}"), p.danger));
+    }
+    status.replay.as_ref().map(|replay| {
+        let words = format!("instant replay holds {}", format::length(replay.held));
+        let mark = icon(&icons::HISTORY, 13.0)
+            .key("live-replay")
+            .color(p.accent)
+            .help(format!(
+                "Instant replay is on and holds {}",
+                format::length(replay.held)
+            ))
+            .a11y_hidden();
+        (mark, words, p.accent)
+    })
+}
+
+fn settings_item(ui: &Ui<'_>) -> El {
+    let p = &ui.p;
+    let open = ui.app.settings_open;
+    let ink = if open { p.t.text } else { p.t.text_secondary };
+    let mut item = row()
+        .key("nav-settings")
         .role("button")
-        .label(spoken.clone())
-        .help(format!("{spoken}. Go to Capture"))
-        .gap(space::S2)
-        .py(space::S2 + 2.0)
+        .label("Settings")
+        .expanded(open)
+        .h(NAV_HEIGHT)
+        .gap(space::S2 + 2.0)
+        .center_y()
         .radius(radius::MD)
-        .fill(p.t.control_track)
         .hover(p.t.text.alpha(0.04))
         .press(p.t.press)
         .focusable(true)
-        .on_press(|app: &mut Ngine| app.show(Screen::Capture));
-    block = if ui.narrow() {
-        block.center()
+        .on_press(Ngine::open_settings)
+        .child(icon(&icons::SETTINGS, 16.0).color(ink).a11y_hidden());
+    if ui.narrow() {
+        item = item.center().help("Settings");
     } else {
-        block.px(space::S3)
-    };
-    if lines.is_empty() {
-        block = block.child(line("status-idle", p.good.alpha(0.8), "Ready".into()));
+        item = item
+            .px(space::S2 + 2.0)
+            .child(text("Settings").font(type_::LABEL).color(ink).a11y_hidden());
     }
-    for (key, recording, words) in lines {
-        let colour = if recording { p.danger } else { p.accent };
-        block = block.child(line(key, colour, words));
-    }
-    block
+    item
 }
 
-fn sidebar(ui: &Ui<'_>, under_window_buttons: bool) -> El {
+fn sidebar(ui: &Ui<'_>) -> El {
     let p = &ui.p;
     let narrow = ui.narrow();
-    let top = if under_window_buttons {
-        space::S3 + WINDOW_BUTTONS_HEIGHT
+    let titlebar_height = ui.chrome.height;
+    let top = if titlebar_height > 0.0 {
+        titlebar_height
     } else {
         space::S3
     };
@@ -261,7 +275,7 @@ fn sidebar(ui: &Ui<'_>, under_window_buttons: bool) -> El {
         )
     } else {
         brand
-            .px(space::S3 - 2.0)
+            .px(space::S2 + 2.0)
             .child(text(NAME).key("name").font(HEADING).color(p.t.text))
     };
     col()
@@ -270,14 +284,15 @@ fn sidebar(ui: &Ui<'_>, under_window_buttons: bool) -> El {
         .label("Sections")
         .w(if narrow { RAIL_WIDTH } else { SIDEBAR_WIDTH })
         .h_full()
-        .px(space::S2 + 2.0)
-        .pb(space::S2 + 2.0)
+        .px(space::S2)
+        .pb(space::S3)
         .pt(top)
-        .gap(space::S1)
+        .gap(2.0)
         .fill(p.sidebar)
         .border_sides([0.0, p.hair, 0.0, 0.0], p.t.separator)
+        .window_drag()
         .child(brand)
-        .child(el().key("brand-gap").h(space::S2).a11y_hidden())
+        .child(el().key("brand-gap").h(space::S3).a11y_hidden())
         .child(nav_item(
             ui,
             Screen::Capture,
@@ -293,15 +308,7 @@ fn sidebar(ui: &Ui<'_>, under_window_buttons: bool) -> El {
             &icons::IMAGES,
         ))
         .child(spacer())
-        .child(nav_item(
-            ui,
-            Screen::Settings,
-            "nav-settings",
-            "Settings",
-            &icons::SETTINGS,
-        ))
-        .child(el().key("status-gap").h(space::S1).a11y_hidden())
-        .child(status(ui))
+        .child(settings_item(ui))
 }
 
 struct Banner {
@@ -471,7 +478,7 @@ fn banners(p: &Paint, app: &Ngine) -> Option<El> {
             action: Some(
                 Button::new("banner-settings-reset-action", "Review settings").build(p, |app| {
                     app.settings_were_reset = false;
-                    app.show(Screen::Settings);
+                    app.open_settings();
                 }),
             ),
         };
@@ -532,26 +539,47 @@ pub fn view(app: &Ngine, cx: &mut Cx<Ngine>) -> El {
     let p = Paint::dark(cx.env().scale);
     cx.web_focus();
     cx.focus_ring(2.0, 1.5, p.accent);
+    cx.caption_color(p.t.text);
     let window = cx
         .layout_size("window")
         .map_or(WINDOW_SIZE, |size| (size[0], size[1]));
     let timeline = cx
         .layout_size("timeline")
         .map_or(editor::TIMELINE_WIDTH, |size| size[0]);
-    let under_window_buttons = cx.titlebar_inset() > 0.0;
     let mut ui = Ui {
         p,
         app,
         layer: Vec::new(),
         window,
+        chrome: cx.chrome_insets(),
     };
+    if app.watching()
+        && let Some(watched) = editor::watched(&mut ui, timeline)
+    {
+        return col()
+            .key("window")
+            .role("window")
+            .w_full()
+            .h_full()
+            .fill(Color::BLACK)
+            .child(watched)
+            .children(ui.layer);
+    }
     let screen = match app.screen {
         Screen::Capture => capture::view(&mut ui),
-        Screen::Settings => settings::view(&mut ui),
         Screen::Library => library::view(&mut ui),
         Screen::Editor => editor::view(&mut ui, timeline),
     };
     let mut main = col().key("main").grow(1.0).h_full().min_w(0.0).min_h(0.0);
+    if ui.chrome.height > 0.0 {
+        main = main.child(
+            el().key("main-titlebar")
+                .w_full()
+                .h(ui.chrome.height)
+                .window_drag()
+                .a11y_hidden(),
+        );
+    }
     if let Some(banners) = banners(&p, app) {
         main = main.child(banners);
     }
@@ -559,13 +587,16 @@ pub fn view(app: &Ngine, cx: &mut Cx<Ngine>) -> El {
     if let Some(notice) = notice(&p, app) {
         main = main.child(notice);
     }
+    if app.settings_open {
+        settings::sheet(&mut ui);
+    }
     row()
         .key("window")
         .role("window")
         .w_full()
         .h_full()
         .fill(p.t.bg)
-        .child(sidebar(&ui, under_window_buttons))
+        .child(sidebar(&ui))
         .child(main)
         .children(ui.layer)
 }

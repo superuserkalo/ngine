@@ -1,14 +1,14 @@
 use std::time::Duration;
 
 use rune::tok::{radius, space, type_};
-use rune::{Align, Color, Drag, El, Phase, Side, SurfaceFit, col, el, row, spacer, text};
+use rune::{Align, Color, Drag, El, Phase, Side, SurfaceFit, col, el, icon, row, spacer, text};
 
 use super::widgets::{
-    Button, Field, Floating, HEADING, Look, NUMBERS, Paint, STRONG, Stops, caption, empty_state,
-    field, float, keycaps, lone_switch, section, slider, surface,
+    Button, Field, Floating, HEADING, Look, NUMBERS, Paint, Stops, caption, empty_state, field,
+    float, keycaps, lone_switch, section, slider, surface, toggle,
 };
 use super::{Ui, icons, page, sheet};
-use crate::app::{Ngine, Popup, Screen};
+use crate::app::{Ngine, Popup, Screen, toggle_watching};
 use crate::editor::{Editor, Exporting, FULL_VOLUME, LOUDEST_PERCENT, PERCENT_STEP, Source};
 use crate::format;
 use crate::platform;
@@ -26,17 +26,20 @@ const GRAB: f32 = 10.0;
 const PROGRESS_HEIGHT: f32 = 6.0;
 const PREVIEW_VOLUME_WIDTH: f32 = 72.0;
 const LEVEL_WIDTH: f32 = 140.0;
+const EXPAND: f32 = 32.0;
+const OVERLAY_WIDTH: f32 = 960.0;
 const SCRUB: f32 = 0.0;
 const MOVE_IN: f32 = 1.0;
 const MOVE_OUT: f32 = 2.0;
 
-pub const SHORTCUTS: [(&[&str], &str); 7] = [
+pub const SHORTCUTS: [(&[&str], &str); 8] = [
     (&["Space"], "Play or pause"),
     (&["←", "→"], "One frame back or forward"),
     (&["⇧", "←"], "One second back, with → forward"),
-    (&["I"], "Set the start of the clip"),
-    (&["O"], "Set the end of the clip"),
-    (&["Esc"], "Back to the library"),
+    (&["I"], "Mark in: where the clip starts"),
+    (&["O"], "Mark out: where the clip ends"),
+    (&["F"], "Full screen, and back"),
+    (&["Esc"], "Leave full screen, or back to the library"),
     (&["?"], "Show these keys"),
 ];
 
@@ -221,13 +224,15 @@ fn transport(p: &Paint, editor: &Editor, narrow: bool) -> El {
         )
         .child(spacer())
         .child(
-            Button::new("set-in", "Set start")
+            Button::new("set-in", "Mark in")
                 .keys(key("I"))
+                .help("Start the clip here (I)")
                 .build(p, with_editor(|editor| editor.set_start(editor.position))),
         )
         .child(
-            Button::new("set-out", "Set end")
+            Button::new("set-out", "Mark out")
                 .keys(key("O"))
+                .help("End the clip here (O)")
                 .build(p, with_editor(|editor| editor.set_end(editor.position))),
         );
     if !narrow {
@@ -324,66 +329,27 @@ fn sound(p: &Paint, editor: &Editor) -> Option<El> {
     })
 }
 
-fn cut_card(p: &Paint, editor: &Editor, cut: Cut) -> El {
-    let (key, title, words) = match cut {
-        Cut::Fast => (
-            "cut-fast",
-            "Fast",
-            "From the keyframe before the start. No re-encoding.",
-        ),
-        Cut::Exact => (
-            "cut-exact",
-            "Exact",
-            "On the exact frames. A little slower.",
-        ),
+fn precise_trim(p: &Paint, editor: &Editor) -> El {
+    let precise = editor.cut == Cut::Exact;
+    let hint = if precise {
+        "Re-encodes the ends, so the clip starts and ends on the exact frames"
+    } else {
+        "Off: the clip starts at the keyframe before the in point, up to 2 s early, and nothing is re-encoded"
     };
-    let chosen = editor.cut == cut;
-    col()
-        .key(key)
-        .role("radio")
-        .label(title)
-        .checked(chosen)
-        .w_frac(0.5)
-        .shrink()
-        .min_w(0.0)
-        .padding(space::S2 + 2.0)
-        .gap(2.0)
-        .radius(radius::MD)
-        .fill(if chosen {
-            p.accent.alpha(0.1)
-        } else {
-            p.t.control_track
-        })
-        .border(p.hair, if chosen { p.accent } else { p.outline })
-        .hover(p.t.hover)
-        .press(p.t.press)
-        .focusable(true)
-        .on_press(with_editor(move |editor| editor.cut = cut))
-        .child(
-            text(title)
-                .key(format!("{key}-title"))
-                .font(STRONG)
-                .color(p.t.text)
-                .a11y_hidden(),
-        )
-        .child(caption(p, &format!("{key}-words"), words))
-}
-
-fn cut(p: &Paint, editor: &Editor) -> El {
-    col()
-        .key("cut")
-        .role("radiogroup")
-        .label("Cut")
-        .gap(space::S2)
-        .child(super::widgets::section_title(p, "cut-title", "Cut").ml(space::S1))
-        .child(
-            row()
-                .key("cut-cards")
-                .focus_group()
-                .gap(space::S2)
-                .child(cut_card(p, editor, Cut::Fast))
-                .child(cut_card(p, editor, Cut::Exact)),
-        )
+    toggle(
+        p,
+        "precise-trim",
+        "Precise trim",
+        Some(hint.into()),
+        precise,
+        with_editor(|editor| {
+            editor.cut = if editor.cut == Cut::Exact {
+                Cut::Fast
+            } else {
+                Cut::Exact
+            };
+        }),
+    )
 }
 
 fn progress(p: &Paint, done: f32) -> El {
@@ -428,14 +394,16 @@ fn export(p: &Paint, app: &Ngine, editor: &Editor) -> El {
     );
     let mut body = col()
         .key("export-body")
-        .padding(space::S3)
+        .px(space::S3 + 2.0)
+        .pt(space::S2)
+        .pb(space::S3)
         .gap(space::S2)
         .child(name)
         .child(caption(
             p,
             "export-words",
             format!(
-                "MP4 with one mixed sound track, {} long, saved to {}",
+                "{} MP4, saved to {}",
                 format::length(editor.clip_length()),
                 app.settings.output_folder.display()
             ),
@@ -503,7 +471,12 @@ fn export(p: &Paint, app: &Ngine, editor: &Editor) -> El {
             )
             .child(export_button(p, "Try again")),
     };
-    section(p, "export-section", "Export", vec![body])
+    section(
+        p,
+        "export-section",
+        "Export",
+        vec![precise_trim(p, editor), body],
+    )
 }
 
 fn header(p: &Paint, editor: &Editor, keys_open: bool) -> El {
@@ -599,6 +572,27 @@ fn empty(p: &Paint) -> El {
     )
 }
 
+fn expand_button(watching: bool) -> El {
+    let (label, glyph) = if watching {
+        ("Exit full screen", &icons::MINIMIZE_2)
+    } else {
+        ("Full screen", &icons::MAXIMIZE_2)
+    };
+    el().key("full-screen")
+        .role("button")
+        .label(label)
+        .help(format!("{label} (F)"))
+        .size(EXPAND, EXPAND)
+        .center()
+        .radius(radius::MD)
+        .fill(Color::BLACK.alpha(0.55))
+        .hover(Color::BLACK.alpha(0.75))
+        .press(Color::BLACK.alpha(0.9))
+        .focusable(true)
+        .on_press_tx(toggle_watching)
+        .child(icon(glyph, 16.0).color(Color::WHITE).a11y_hidden())
+}
+
 fn preview(p: &Paint, editor: &Editor, width: f32, height: f32) -> El {
     let mut frame = el()
         .key("preview")
@@ -607,7 +601,17 @@ fn preview(p: &Paint, editor: &Editor, width: f32, height: f32) -> El {
         .radius(radius::LG)
         .fill(Color::BLACK)
         .center()
-        .pixels_fit(&editor.picture, SurfaceFit::Fit);
+        .pixels_fit(&editor.picture, SurfaceFit::Fit)
+        .on_hover_change(|app: &mut Ngine, inside, _| {
+            if let Some(editor) = &mut app.editor {
+                editor.hovered = inside;
+            }
+        });
+    if editor.hovered {
+        frame = frame.child(
+            expand_button(false).absolute(width - EXPAND - space::S3, height - EXPAND - space::S3),
+        );
+    }
     if let Some(failure) = &editor.failure {
         frame = frame.child(
             text(format!("The video cannot be shown: {failure}"))
@@ -656,10 +660,7 @@ pub fn view(ui: &mut Ui<'_>, timeline_width: f32) -> El {
             "No sound output could be opened, so the preview plays without sound. The clip keeps its sound.",
         ));
     }
-    let mut panel = col()
-        .key("editor-panel")
-        .gap(space::S6 - 4.0)
-        .child(cut(&p, editor));
+    let mut panel = col().key("editor-panel").gap(space::S6);
     if let Some(sound) = sound(&p, editor) {
         panel = panel.child(sound);
     }
@@ -686,4 +687,55 @@ pub fn view(ui: &mut Ui<'_>, timeline_width: f32) -> El {
         .child(header(&p, editor, keys_open))
         .child(body);
     page("editor", content)
+}
+
+/// The video filling the window, with the transport and the timeline over
+/// its foot while the pointer moves or the video is paused.
+pub fn watched(ui: &mut Ui<'_>, timeline_width: f32) -> Option<El> {
+    let p = ui.p;
+    let app = ui.app;
+    let editor = app.editor.as_ref()?;
+    let (width, height) = ui.window;
+    let mut stage = el()
+        .key("watching")
+        .w(width)
+        .h(height)
+        .fill(Color::BLACK)
+        .pixels_fit(&editor.picture, SurfaceFit::Fit)
+        .on_pointer_move(|app: &mut Ngine, _| app.pointer_moved(false));
+    if editor.controls_shown(app.clock()) {
+        let overlay_width = (width - 2.0 * space::S6).min(OVERLAY_WIDTH);
+        let controls = col()
+            .key("watching-controls")
+            .w(overlay_width)
+            .padding(space::S3 + space::S1)
+            .gap(space::S2)
+            .radius(radius::LG)
+            .fill(Color::BLACK.alpha(0.72))
+            .border(p.hair, Color::WHITE.alpha(0.08))
+            .on_pointer_move(|app: &mut Ngine, _| app.pointer_moved(true))
+            .on_hover_change(|app: &mut Ngine, inside, _| app.pointer_moved(inside))
+            .child(
+                row()
+                    .key("watching-top")
+                    .gap(space::S2)
+                    .center_y()
+                    .child(
+                        transport(&p, editor, overlay_width < 600.0)
+                            .grow(1.0)
+                            .min_w(0.0),
+                    )
+                    .child(expand_button(true)),
+            )
+            .child(
+                col()
+                    .key("timeline-block")
+                    .gap(space::S1)
+                    .child(range(&p, editor))
+                    .child(timeline(&p, editor, timeline_width)),
+            );
+        stage = stage
+            .child(controls.absolute((width - overlay_width) / 2.0, height - space::S6 - 116.0));
+    }
+    Some(stage)
 }

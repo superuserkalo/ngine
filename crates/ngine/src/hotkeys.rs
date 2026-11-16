@@ -47,6 +47,14 @@ pub fn parse(accelerator: &str) -> Option<Shortcut> {
         .filter(|shortcut| shortcut.require_modifier().is_ok())
 }
 
+/// What the system does with `shortcut` when it keeps it for itself.
+pub fn reserved(shortcut: &Shortcut) -> Option<&'static str> {
+    crate::platform::RESERVED_SHORTCUTS
+        .iter()
+        .find(|(accelerator, _)| accelerator.parse::<Shortcut>().ok().as_ref() == Some(shortcut))
+        .map(|(_, what)| *what)
+}
+
 pub fn is_unset(accelerator: &str) -> bool {
     accelerator.trim().is_empty()
 }

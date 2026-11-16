@@ -128,8 +128,7 @@ fn disk_full(app: &mut Ngine) {
 }
 
 fn section(app: &mut Ngine, section: Section) {
-    app.screen = Screen::Settings;
-    app.section = section;
+    app.show_section(section);
 }
 
 fn settings_replay_long(app: &mut Ngine) {

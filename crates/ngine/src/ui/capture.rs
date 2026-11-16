@@ -6,21 +6,24 @@ use rune::{
 };
 
 use super::widgets::{
-    Button, Floating, ICON, Look, MenuItem, Option_, Paint, STRONG, Select, Stops, TIMER, caption,
-    card, float, lone_switch, menu, menu_heading, menu_rule, meter, section_title, select, slider,
+    Button, CAPTION, Floating, ICON, Look, MenuItem, Option_, Paint, STRONG, Select, Stops, TIMER,
+    caption, card, float, lone_switch, menu, menu_heading, menu_rule, meter, section_title, select,
+    slider,
 };
-use super::{Ui, hotkey_caps, icons, page, page_title, sheet};
+use super::{Ui, hotkey_caps, icons, page, sheet};
 use crate::app::{Action, Ngine, Popup, Screen};
-use crate::engine::{AudioSource, Target, TargetKind};
+use crate::engine::{AudioSource, SystemSound, Target, TargetKind};
 use crate::format;
 use crate::hotkeys;
 use crate::settings::{REPLAY_LENGTHS, SHORT_SAVE_SECONDS, Settings};
 
 const SOURCE_TILE: f32 = 36.0;
-const SOURCES_WIDTH: f32 = 340.0;
-const SOURCES_HEIGHT: f32 = 380.0;
-const AUDIO_LABEL: f32 = 112.0;
+const SOURCES_WIDTH: f32 = 380.0;
+const SOURCES_HEIGHT: f32 = 420.0;
+const AUDIO_LABEL: f32 = 104.0;
 const VOLUME_WIDTH: f32 = 96.0;
+const METER_WIDTH: f32 = 120.0;
+const DEVICE_WIDTH: f32 = 220.0;
 const LENGTH_WIDTH: f32 = 112.0;
 const RECENT_COUNT: usize = 3;
 const VOLUME_STEP: u8 = 5;
@@ -36,14 +39,6 @@ fn kind_icon(kind: TargetKind) -> &'static Icon {
         TargetKind::Screen => &icons::MONITOR,
         TargetKind::Window => &icons::APP_WINDOW,
         TargetKind::App => &icons::LAYOUT_GRID,
-    }
-}
-
-fn kind_heading(kind: TargetKind) -> &'static str {
-    match kind {
-        TargetKind::Screen => "Screens",
-        TargetKind::Window => "Windows",
-        TargetKind::App => "Apps",
     }
 }
 
@@ -79,13 +74,41 @@ fn source_words(app: &Ngine) -> (&'static Icon, String, String) {
         (Some(target), false) => (
             kind_icon(target.kind),
             target.name.clone(),
-            format!("{} · {}", kind_word(target.kind), target.detail),
+            target_detail(app, target),
         ),
         (None, false) => (
             &icons::MOUSE_POINTER_CLICK,
             "Nothing chosen yet".into(),
             "Choose a screen, a window or an app to record".into(),
         ),
+    }
+}
+
+/// How many listed windows belong to the app `target`.
+pub fn window_count(app: &Ngine, target: &Target) -> usize {
+    app.sources
+        .iter()
+        .filter(|window| window.owner.as_deref() == Some(target.id.as_str()))
+        .count()
+}
+
+fn windows_words(count: usize) -> String {
+    match count {
+        1 => "1 window".to_owned(),
+        many => format!("{many} windows"),
+    }
+}
+
+/// What the source line says under the name: what kind of thing it is and
+/// what it holds.
+fn target_detail(app: &Ngine, target: &Target) -> String {
+    match target.kind {
+        TargetKind::App => format!("App · all {}", windows_words(window_count(app, target))),
+        TargetKind::Window | TargetKind::Screen if target.detail.is_empty() => {
+            kind_word(target.kind).to_owned()
+        }
+        TargetKind::Window => format!("Window of {}", target.detail),
+        TargetKind::Screen => format!("Screen · {}", target.detail),
     }
 }
 
@@ -176,43 +199,45 @@ fn source(ui: &mut Ui<'_>) -> El {
     if open {
         sources_menu(ui);
     }
-    col()
-        .key("source-group")
-        .gap(space::S2)
-        .child(section_title(&p, "source-title", "Source").ml(space::S1))
-        .child(line)
+    line
 }
 
+fn elsewhere_tag(p: &Paint, key: &str) -> El {
+    text("Hidden")
+        .key(format!("{key}-elsewhere"))
+        .font(CAPTION)
+        .color(p.faint)
+        .help("Minimised or on another desktop. It records all the same.")
+}
+
+fn window_item(app: &Ngine, p: &Paint, index: usize, window: &Target, nested: bool) -> El {
+    let key = format!("source-{}", window.id);
+    let mut item = MenuItem::new(&key, &window.name).chosen(app.target.as_ref() == Some(window));
+    if !nested {
+        item = item
+            .icon(kind_icon(TargetKind::Window))
+            .detail(window.detail.clone());
+    }
+    let mut built = item.build(p, "menuitemradio", move |app, _| app.choose(index));
+    if nested {
+        built = built.pl(space::S6 + space::S3);
+    }
+    if window.elsewhere {
+        built = built
+            .description("Minimised or on another desktop")
+            .child(elsewhere_tag(p, &key));
+    }
+    built
+}
+
+/// The menu of what can be recorded: screens first, then each app with its
+/// windows under it. Choosing the app records every window it has; choosing
+/// one window records only that window. Where the system cannot record a
+/// whole app, its name heads its windows instead.
 fn sources_menu(ui: &mut Ui<'_>) {
     let p = ui.p;
-    let app = ui.app;
-    let mut items = Vec::new();
-    for kind in TargetKind::ALL {
-        let of_kind: Vec<(usize, &Target)> = app
-            .sources
-            .iter()
-            .enumerate()
-            .filter(|(_, target)| target.kind == kind)
-            .collect();
-        if of_kind.is_empty() {
-            continue;
-        }
-        items.push(menu_heading(
-            &p,
-            &format!("sources-{}", kind_heading(kind).to_lowercase()),
-            kind_heading(kind),
-        ));
-        for (index, target) in of_kind {
-            let key = format!("source-{}", target.id);
-            items.push(
-                MenuItem::new(&key, &target.name)
-                    .icon(kind_icon(kind))
-                    .detail(target.detail.clone())
-                    .chosen(app.target.as_ref() == Some(target))
-                    .build(&p, "menuitemradio", move |app, _| app.choose(index)),
-            );
-        }
-    }
+    let mut items = screen_items(&p, ui.app);
+    items.extend(app_items(&p, ui.app));
     if !items.is_empty() {
         items.push(menu_rule(&p, "sources-rule"));
     }
@@ -223,7 +248,7 @@ fn sources_menu(ui: &mut Ui<'_>) {
     );
     let list = menu(&p, "sources", "Sources", items)
         .w(SOURCES_WIDTH.min(ui.content_width()))
-        .max_h(SOURCES_HEIGHT)
+        .max_h(SOURCES_HEIGHT.min(ui.window.1 - 160.0).max(160.0))
         .scroll(ScrollSpec {
             stick_bottom: false,
         });
@@ -234,6 +259,96 @@ fn sources_menu(ui: &mut Ui<'_>) {
         align: Align::Start,
     };
     float(&mut ui.layer, &floating, list);
+}
+
+fn screen_items(p: &Paint, app: &Ngine) -> Vec<El> {
+    let p = *p;
+    let mut items = Vec::new();
+    let screens: Vec<(usize, &Target)> = app
+        .sources
+        .iter()
+        .enumerate()
+        .filter(|(_, target)| target.kind == TargetKind::Screen)
+        .collect();
+    if !screens.is_empty() {
+        items.push(menu_heading(&p, "sources-screens", "Screens"));
+        for (index, target) in screens {
+            let key = format!("source-{}", target.id);
+            items.push(
+                MenuItem::new(&key, &target.name)
+                    .icon(kind_icon(TargetKind::Screen))
+                    .detail(target.detail.clone())
+                    .chosen(app.target.as_ref() == Some(target))
+                    .build(&p, "menuitemradio", move |app, _| app.choose(index)),
+            );
+        }
+    }
+    items
+}
+
+fn app_items(p: &Paint, app: &Ngine) -> Vec<El> {
+    let p = *p;
+    let mut items = Vec::new();
+    let windows: Vec<(usize, &Target)> = app
+        .sources
+        .iter()
+        .enumerate()
+        .filter(|(_, target)| target.kind == TargetKind::Window)
+        .collect();
+    let apps: Vec<(usize, &Target)> = app
+        .sources
+        .iter()
+        .enumerate()
+        .filter(|(_, target)| target.kind == TargetKind::App)
+        .collect();
+    if !apps.is_empty() || !windows.is_empty() {
+        items.push(menu_heading(&p, "sources-apps", "Apps and windows"));
+    }
+    for (index, owner) in &apps {
+        let index = *index;
+        let key = format!("source-{}", owner.id);
+        let count = window_count(app, owner);
+        items.push(
+            MenuItem::new(&key, &owner.name)
+                .icon(kind_icon(TargetKind::App))
+                .detail(format!("All {}", windows_words(count)))
+                .chosen(app.target.as_ref() == Some(*owner))
+                .build(&p, "menuitemradio", move |app, _| app.choose(index)),
+        );
+        for (window_index, window) in windows
+            .iter()
+            .filter(|(_, window)| window.owner.as_deref() == Some(owner.id.as_str()))
+        {
+            items.push(window_item(app, &p, *window_index, window, true));
+        }
+    }
+    let unowned = |window: &&(usize, &Target)| {
+        window
+            .1
+            .owner
+            .as_deref()
+            .is_none_or(|owner| apps.iter().all(|(_, app)| app.id != owner))
+    };
+    let mut heading: Option<&str> = None;
+    for (index, window) in windows.iter().filter(unowned) {
+        if apps.is_empty() && heading != Some(window.detail.as_str()) && !window.detail.is_empty() {
+            heading = Some(window.detail.as_str());
+            items.push(
+                text(window.detail.clone())
+                    .key(format!("sources-app-{index}"))
+                    .font(type_::LABEL)
+                    .color(p.t.text_secondary)
+                    .truncate()
+                    .px(space::S2)
+                    .pt(space::S2)
+                    .pb(2.0),
+            );
+            items.push(window_item(app, &p, *index, window, true));
+        } else {
+            items.push(window_item(app, &p, *index, window, apps.is_empty()));
+        }
+    }
+    items
 }
 
 /// The volume of one source as a slider in steps of five percent.
@@ -261,13 +376,96 @@ pub fn volume(
     })
 }
 
-#[derive(Clone, Copy)]
+/// The microphone menu: the system's default first, which follows the
+/// system when it changes, then every microphone it offers.
+pub fn microphone_select(ui: &mut Ui<'_>, key: &str, width: f32) -> El {
+    let p = ui.p;
+    let app = ui.app;
+    let default_name = app
+        .microphones
+        .iter()
+        .find(|device| device.is_default)
+        .map(|device| device.name.clone());
+    let mut options = vec![match &default_name {
+        Some(name) => Option_::new("System default").detail(name.clone()),
+        None => Option_::new("System default"),
+    }];
+    options.extend(
+        app.microphones
+            .iter()
+            .map(|device| Option_::new(device.name.clone())),
+    );
+    let ids: Vec<String> = app
+        .microphones
+        .iter()
+        .map(|device| device.id.clone())
+        .collect();
+    let selected = match (&app.settings.inputs.microphone, app.missing_microphone()) {
+        (None, _) | (Some(_), Some(_)) => Some(0),
+        (Some(id), None) => ids.iter().position(|one| one == id).map(|at| at + 1),
+    };
+    let chosen = Select {
+        key,
+        label: "Microphone",
+        options,
+        selected,
+        width,
+    };
+    select(&p, app, &mut ui.layer, chosen, move |app, index| {
+        let device = index.checked_sub(1).and_then(|at| ids.get(at)).cloned();
+        app.edit(|settings| settings.inputs.microphone = device);
+    })
+}
+
+pub fn system_sound_words(sound: &SystemSound) -> String {
+    match sound {
+        SystemSound::Everything => "All system sound".to_owned(),
+        SystemSound::App { name, .. } => format!("Only {name}"),
+        SystemSound::Output(device) => device.name.clone(),
+    }
+}
+
+/// The system sound menu: all of it, or what the system can separate: one
+/// app's sound, or one output device's.
+pub fn system_sound_select(ui: &mut Ui<'_>, key: &str, width: f32) -> El {
+    let p = ui.p;
+    let app = ui.app;
+    let mut choices = vec![SystemSound::Everything];
+    choices.extend(app.system_sounds.iter().cloned());
+    let wanted = &app.settings.inputs.system;
+    if app.missing_system_sound().is_some() {
+        choices.push(wanted.clone());
+    }
+    let selected = choices.iter().position(|one| match (one, wanted) {
+        (SystemSound::App { name: a, .. }, SystemSound::App { name: b, .. }) => a == b,
+        (SystemSound::Output(a), SystemSound::Output(b)) => a.id == b.id,
+        (one, wanted) => one == wanted,
+    });
+    let options = choices
+        .iter()
+        .map(|sound| Option_::new(system_sound_words(sound)))
+        .collect();
+    let chosen = Select {
+        key,
+        label: "System sound",
+        options,
+        selected,
+        width,
+    };
+    select(&p, app, &mut ui.layer, chosen, move |app, index| {
+        if let Some(sound) = choices.get(index).cloned() {
+            app.edit(|settings| settings.inputs.system = sound);
+        }
+    })
+}
+
 struct AudioRow {
     key: &'static str,
     label: &'static str,
     glyph: &'static Icon,
     source: AudioSource,
-    level: Option<u8>,
+    level: Option<f32>,
+    device: El,
     flip: fn(&mut Settings),
     set_volume: fn(&mut Settings, u8),
 }
@@ -279,6 +477,7 @@ fn audio_row(p: &Paint, narrow: bool, audio: AudioRow) -> El {
         glyph,
         source,
         level,
+        device,
         flip,
         set_volume,
     } = audio;
@@ -286,8 +485,9 @@ fn audio_row(p: &Paint, narrow: bool, audio: AudioRow) -> El {
     let shown = if on { 1.0 } else { OFF };
     let mut line = row()
         .key(key)
-        .min_h(44.0)
-        .px(space::S3)
+        .min_h(48.0)
+        .pl(space::S3 + 2.0)
+        .pr(space::S3)
         .gap(space::S3)
         .center_y()
         .child(
@@ -305,17 +505,28 @@ fn audio_row(p: &Paint, narrow: bool, audio: AudioRow) -> El {
                 .a11y_hidden(),
         )
         .child(
-            el().key(format!("{key}-meter-box"))
+            el().key(format!("{key}-device-box"))
                 .grow(1.0)
-                .min_w(40.0)
+                .min_w(0.0)
                 .opacity(shown)
+                .child(device),
+        );
+    if let Some(level) = level.filter(|_| on) {
+        line = line.child(
+            el().key(format!("{key}-meter-box"))
+                .w(if narrow {
+                    METER_WIDTH / 2.0
+                } else {
+                    METER_WIDTH
+                })
                 .child(meter(
                     p,
                     &format!("{key}-meter"),
                     &format!("{label} level"),
-                    level.filter(|_| on),
+                    level,
                 )),
         );
+    }
     if !narrow {
         line = line.child(
             volume(
@@ -338,12 +549,18 @@ fn audio_row(p: &Paint, narrow: bool, audio: AudioRow) -> El {
     ))
 }
 
-fn audio(ui: &Ui<'_>) -> El {
+fn audio(ui: &mut Ui<'_>) -> El {
+    let narrow = ui.content_width() < 600.0;
+    let device_width = if narrow { 140.0 } else { DEVICE_WIDTH };
+    let system_device =
+        system_sound_select(ui, "capture-system-sound", device_width).fill(Color::TRANSPARENT);
+    let microphone_device =
+        microphone_select(ui, "capture-microphone", device_width).fill(Color::TRANSPARENT);
     let p = ui.p;
     let app = ui.app;
     let audio = app.settings.audio;
-    let levels = app.status.levels;
-    let narrow = ui.content_width() < 560.0;
+    let live = app.status.levels.is_some() || app.meters.moving();
+    let meters = app.meters;
     let rows = vec![
         audio_row(
             &p,
@@ -353,7 +570,8 @@ fn audio(ui: &Ui<'_>) -> El {
                 label: "System sound",
                 glyph: &icons::VOLUME_2,
                 source: audio.system,
-                level: levels.map(|levels| levels.system),
+                level: live.then_some(meters.system),
+                device: system_device,
                 flip: |settings| settings.audio.system.enabled ^= true,
                 set_volume: |settings, percent| settings.audio.system.volume_percent = percent,
             },
@@ -366,17 +584,14 @@ fn audio(ui: &Ui<'_>) -> El {
                 label: "Microphone",
                 glyph: &icons::MIC,
                 source: audio.microphone,
-                level: levels.map(|levels| levels.microphone),
+                level: live.then_some(meters.microphone),
+                device: microphone_device,
                 flip: |settings| settings.audio.microphone.enabled ^= true,
                 set_volume: |settings, percent| settings.audio.microphone.volume_percent = percent,
             },
         ),
     ];
-    col()
-        .key("audio")
-        .gap(space::S2)
-        .child(section_title(&p, "audio-title", "Sound").ml(space::S1))
-        .child(card(&p, "audio-card", rows))
+    card(&p, "audio", rows)
 }
 
 fn recording_words(app: &Ngine) -> String {
@@ -701,9 +916,8 @@ fn recent(ui: &Ui<'_>) -> Option<El> {
 }
 
 pub fn view(ui: &mut Ui<'_>) -> El {
-    let p = ui.p;
     let mut content = sheet(ui, "capture")
-        .child(page_title(&p, "capture-title", "Capture"))
+        .gap(space::S3 + space::S1)
         .child(source(ui))
         .child(record(ui))
         .child(replay(ui))

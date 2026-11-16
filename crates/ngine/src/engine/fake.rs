@@ -237,6 +237,7 @@ impl Engine for FakeEngine {
             codecs: vec![Codec::H264, Codec::Hevc],
             lists_targets: self.inner.borrow().lists_targets,
             default_memory_budget_mb: 512,
+            simulated: true,
         }
     }
 

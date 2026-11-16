@@ -95,6 +95,7 @@ pub struct ClipWriter {
     end_micros: i64,
     video_frames: u64,
     complete: bool,
+    longest_keyframe_snap_micros: Option<i64>,
 }
 
 impl ClipWriter {
@@ -148,7 +149,19 @@ impl ClipWriter {
             end_micros: 0,
             video_frames: 0,
             complete: false,
+            longest_keyframe_snap_micros: None,
         })
+    }
+
+    /// Makes the clip start exactly at the range's start when the keyframe
+    /// before it is more than `longest_keyframe_snap_micros` older. The video
+    /// from that keyframe on is then written before the clip's start, and the
+    /// MP4 edit list makes a player decode it without showing it:
+    /// <https://developer.apple.com/documentation/quicktime-file-format/edit_list_atom>
+    #[must_use]
+    pub fn starting_exactly_after_a_long_gap(mut self, longest_keyframe_snap_micros: i64) -> Self {
+        self.longest_keyframe_snap_micros = Some(longest_keyframe_snap_micros);
+        self
     }
 
     /// Whether the end of the range was reached, so further packets change
@@ -223,7 +236,18 @@ impl ClipWriter {
         }
     }
 
-    fn commit(&mut self, origin: Origin) -> Result<()> {
+    fn exact_origin(&self, keyframe: Origin) -> Option<Origin> {
+        let start = self.range.start_micros?;
+        let snap = self.longest_keyframe_snap_micros?;
+        let video_time_base = self.tracks.first()?.time_base;
+        (start - keyframe.micros > snap).then_some(Origin {
+            micros: start,
+            video_pts: Rational::MICROS.rescale(start, video_time_base)?,
+        })
+    }
+
+    fn commit(&mut self, keyframe: Origin) -> Result<()> {
+        let origin = self.exact_origin(keyframe).unwrap_or(keyframe);
         self.origin = Some(origin);
         self.end_micros = origin.micros;
         for track in &mut self.tracks {
@@ -259,8 +283,10 @@ impl ClipWriter {
             return Ok(());
         }
         if track.video.is_some() {
-            self.video_frames += 1;
-            self.end_micros = self.end_micros.max(micros + duration_micros);
+            if micros + duration_micros > origin.micros {
+                self.video_frames += 1;
+                self.end_micros = self.end_micros.max(micros + duration_micros);
+            }
         } else if micros + duration_micros <= origin.micros - track.pre_roll_micros {
             return Ok(());
         }

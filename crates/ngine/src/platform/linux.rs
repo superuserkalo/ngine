@@ -4,6 +4,8 @@ use std::path::{Path, PathBuf};
 use super::{Autostart, BACKGROUND_FLAG, Folders};
 
 pub const VIDEOS_FOLDER: &str = "Videos";
+pub const SAMPLE_OUTPUT_FOLDER: &str = "~/Videos/ngine";
+pub const SAMPLE_BUFFER_FOLDER: &str = "~/.cache/ngine/replay";
 pub const LISTS_CAPTURE_TARGETS: bool = false;
 
 const ENTRY_FILE: &str = "autostart/ngine.desktop";

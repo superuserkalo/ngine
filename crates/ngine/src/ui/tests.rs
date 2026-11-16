@@ -264,7 +264,7 @@ fn a_missing_permission_blocks_the_start_and_says_what_to_do() {
 fn a_full_disk_and_a_lost_capture_say_the_recording_was_kept() {
     let full = scene("disk-full");
     assert_eq!(words(&full, "problem-disk-full-title"), "The disk is full");
-    assert!(words(&full, "problem-disk-full-detail").contains("~/Videos/ngine"));
+    assert!(words(&full, "problem-disk-full-detail").contains(crate::app::demo::OUTPUT_FOLDER));
     let lost = scene("capture-lost");
     assert_eq!(
         words(&lost, "problem-capture-lost-detail"),
@@ -422,7 +422,7 @@ fn typing_in_the_output_folder_changes_the_setting() {
         "{}",
         folder.display()
     );
-    assert_ne!(folder, PathBuf::from("~/Videos/ngine"));
+    assert_ne!(folder, PathBuf::from(crate::app::demo::OUTPUT_FOLDER));
 }
 
 #[test]

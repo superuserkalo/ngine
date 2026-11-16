@@ -116,6 +116,47 @@ fn a_replay_saved_from_buffered_packets_starts_at_its_first_keyframe() {
 }
 
 #[test]
+fn a_clip_after_a_long_gap_between_keyframes_starts_exactly_where_asked() {
+    let frames = usize::try_from(SECONDS).unwrap() * SAMPLE_RATE;
+    let audio = [tone(SYSTEM_TONE, 0, frames)];
+    let one_keyframe = encode_source(SECONDS, 1_000, AudioCodec::Aac, &audio);
+    let range = ClipRange {
+        start_micros: Some(2_500_000),
+        end_micros: None,
+    };
+
+    let snapped = TempFile::new("snapped.mp4");
+    let mut writer =
+        ClipWriter::create(snapped.path(), &one_keyframe.streams, &[0, 1], range).unwrap();
+    for packet in &one_keyframe.packets {
+        writer.push(packet.clone()).unwrap();
+    }
+    assert_eq!(writer.finish().unwrap().source_start_micros, 0);
+
+    let exact = TempFile::new("exact.mp4");
+    let mut writer = ClipWriter::create(exact.path(), &one_keyframe.streams, &[0, 1], range)
+        .unwrap()
+        .starting_exactly_after_a_long_gap(2_000_000);
+    for packet in &one_keyframe.packets {
+        writer.push(packet.clone()).unwrap();
+    }
+    let summary = writer.finish().unwrap();
+    assert_eq!(summary.source_start_micros, 2_500_000);
+    assert_eq!(summary.video_frames, 45);
+    assert!((summary.duration_micros - 1_500_000).abs() <= 12);
+
+    let decoded = decode_file(exact.path(), PixelFormat::Bgra, false);
+    assert_starts_at_zero_on_frame(&decoded, 75, 45);
+    let duration = decoded.duration_micros.unwrap();
+    assert!((duration - 1_500_000).abs() < 50_000, "{duration} µs");
+    let heard = decoded.left_channel(0).len();
+    assert!(
+        heard.abs_diff(SAMPLE_RATE * 3 / 2) <= 2_048,
+        "{heard} samples"
+    );
+}
+
+#[test]
 fn packets_without_a_keyframe_cannot_become_a_clip() {
     let clip = TempFile::new("no-keyframe.mp4");
     let source = two_tone_source(AudioCodec::Aac);

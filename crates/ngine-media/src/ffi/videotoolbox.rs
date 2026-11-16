@@ -1,6 +1,8 @@
 use std::ffi::c_void;
 use std::ptr::{self, NonNull};
 
+use ngine_capture::CoreVideoSurface;
+
 use super::encode::frame_from_pixels;
 use super::{Frame, check, out_of_memory, sys, to_int};
 use crate::error::{Error, Result};
@@ -9,8 +11,13 @@ use crate::types::{PixelFormat, PixelView, check_dimensions};
 #[link(name = "CoreFoundation", kind = "framework")]
 unsafe extern "C" {
     fn CFRelease(object: *const c_void);
-    #[cfg(test)]
     fn CFRetain(object: *const c_void) -> *const c_void;
+}
+
+#[link(name = "CoreVideo", kind = "framework")]
+unsafe extern "C" {
+    fn CVPixelBufferGetWidth(buffer: *const c_void) -> usize;
+    fn CVPixelBufferGetHeight(buffer: *const c_void) -> usize;
 }
 
 struct BufferRef(NonNull<sys::AVBufferRef>);
@@ -201,38 +208,19 @@ impl GpuSurface {
         Ok(reference)
     }
 
-    /// Wraps a pixel buffer that came from somewhere other than a
-    /// [`GpuFramePool`], such as a capture session.
-    ///
-    /// # Safety
-    ///
-    /// `buffer` must be a valid `CVPixelBufferRef` of `width` by `height`
-    /// pixels carrying one retain that the caller gives up. The surface
-    /// releases it, also when this function fails.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "this is the seam for the capture crate's surfaces, which nothing calls until the recorder is wired up"
-        )
-    )]
-    pub(crate) unsafe fn from_retained_pixel_buffer(
-        buffer: NonNull<c_void>,
-        width: u32,
-        height: u32,
-    ) -> Result<Self> {
-        let mut frame = match blank_surface_frame(width, height) {
-            Ok(frame) => frame,
-            Err(error) => {
-                // SAFETY: the caller handed over one retain on a valid pixel
-                // buffer and nothing else took it.
-                unsafe { CFRelease(buffer.as_ptr()) };
-                return Err(error);
-            }
-        };
+    /// Shares a captured frame's pixel buffer with the encoder without
+    /// copying it. The surface keeps the pixel buffer alive on its own, so
+    /// the captured frame can be dropped.
+    pub fn from_capture(surface: &CoreVideoSurface) -> Result<Self> {
+        Self::holding(RetainedPixelBuffer::of_capture(surface)?)
+    }
+
+    fn holding(buffer: RetainedPixelBuffer) -> Result<Self> {
+        let (width, height) = buffer.size()?;
+        let mut frame = blank_surface_frame(width, height)?;
         // SAFETY: av_buffer_create only records the pointer; with a size of
         // zero FFmpeg never reads through it, and `release_pixel_buffer`
-        // matches the retain the caller handed over.
+        // gives back the one retain that `buffer` owns.
         let holder = unsafe {
             sys::av_buffer_create(
                 buffer.as_ptr().cast(),
@@ -243,20 +231,70 @@ impl GpuSurface {
             )
         };
         if holder.is_null() {
-            // SAFETY: as above; no AVBuffer took the retain.
-            unsafe { CFRelease(buffer.as_ptr()) };
             return Err(out_of_memory("wrap a pixel buffer"));
         }
+        let pixel_buffer = buffer.into_the_holders_keeping();
         let raw = frame.raw_mut();
         raw.buf[0] = holder;
         // An AV_PIX_FMT_VIDEOTOOLBOX frame carries its CVPixelBufferRef in
         // data[3]: https://ffmpeg.org/doxygen/trunk/pixfmt_8h.html
-        raw.data[3] = buffer.as_ptr().cast();
+        raw.data[3] = pixel_buffer.as_ptr().cast();
         Ok(Self {
             frame,
             width,
             height,
         })
+    }
+}
+
+struct RetainedPixelBuffer(NonNull<c_void>);
+
+impl RetainedPixelBuffer {
+    fn of_capture(surface: &CoreVideoSurface) -> Result<Self> {
+        let buffer = NonNull::new(surface.pixel_buffer_ptr())
+            .ok_or_else(|| Error::invalid("the captured frame has no pixel buffer"))?;
+        // SAFETY: a CoreVideoSurface holds a valid CVPixelBufferRef for as
+        // long as it lives, and it is borrowed for this call; CFRetain adds
+        // the reference that the returned value owns and releases on drop.
+        let _same_pointer = unsafe { CFRetain(buffer.as_ptr()) };
+        Ok(Self(buffer))
+    }
+
+    #[cfg(test)]
+    fn of_pooled(surface: &GpuSurface) -> Option<Self> {
+        let buffer = NonNull::new(surface.frame.raw().data[3].cast::<c_void>())?;
+        // SAFETY: data[3] of a VideoToolbox frame from a GpuFramePool is its
+        // live CVPixelBufferRef, kept alive by the borrowed surface; CFRetain
+        // adds the reference that the returned value owns.
+        let _same_pointer = unsafe { CFRetain(buffer.as_ptr()) };
+        Some(Self(buffer))
+    }
+
+    fn as_ptr(&self) -> *mut c_void {
+        self.0.as_ptr()
+    }
+
+    fn size(&self) -> Result<(u32, u32)> {
+        // SAFETY: this value owns a retain on a valid CVPixelBufferRef.
+        let width = unsafe { CVPixelBufferGetWidth(self.as_ptr()) };
+        // SAFETY: as above.
+        let height = unsafe { CVPixelBufferGetHeight(self.as_ptr()) };
+        match (u32::try_from(width), u32::try_from(height)) {
+            (Ok(width), Ok(height)) => Ok((width, height)),
+            _ => Err(Error::invalid("the pixel buffer has an impossible size")),
+        }
+    }
+
+    fn into_the_holders_keeping(self) -> NonNull<c_void> {
+        std::mem::ManuallyDrop::new(self).0
+    }
+}
+
+impl Drop for RetainedPixelBuffer {
+    fn drop(&mut self) {
+        // SAFETY: this value owns one retain on a valid CVPixelBufferRef and
+        // gives it back exactly once.
+        unsafe { CFRelease(self.as_ptr()) }
     }
 }
 
@@ -272,9 +310,9 @@ fn blank_surface_frame(width: u32, height: u32) -> Result<Frame> {
 
 unsafe extern "C" fn release_pixel_buffer(_opaque: *mut c_void, data: *mut u8) {
     // SAFETY: FFmpeg calls this once, when the last reference to the buffer
-    // created in `from_retained_pixel_buffer` goes away, with the pixel buffer
-    // pointer that function stored; releasing it gives back the retain the
-    // caller handed over.
+    // created in `GpuSurface::holding` goes away, with the pixel buffer
+    // pointer that function stored; releasing it gives back the retain that
+    // the RetainedPixelBuffer handed to the holder.
     unsafe { CFRelease(data.cast_const().cast()) }
 }
 
@@ -328,17 +366,10 @@ mod tests {
         let mut packets = Vec::new();
         for pts in 0..10 {
             let pooled = pool.upload(&pixels).unwrap();
-            let buffer = pooled.frame.raw().data[3].cast::<c_void>().cast_const();
-            // SAFETY: data[3] of a VideoToolbox frame is its live
-            // CVPixelBufferRef; retaining it gives this test a reference of
-            // its own to hand over.
-            let retained = unsafe { CFRetain(buffer) };
+            let retained = RetainedPixelBuffer::of_pooled(&pooled).unwrap();
             drop(pooled);
-            let retained = NonNull::new(retained.cast_mut()).unwrap();
-            // SAFETY: `retained` is a valid 640x360 pixel buffer whose retain
-            // the surface now owns.
-            let foreign =
-                unsafe { GpuSurface::from_retained_pixel_buffer(retained, 640, 360) }.unwrap();
+            let foreign = GpuSurface::holding(retained).unwrap();
+            assert_eq!((foreign.width(), foreign.height()), (640, 360));
             packets.extend(encoder.encode(VideoInput::Gpu(&foreign), pts).unwrap());
         }
         packets.extend(encoder.finish().unwrap());

@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 pub mod fake;
+pub mod real;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TargetKind {
@@ -120,6 +121,7 @@ pub struct Capabilities {
     pub codecs: Vec<Codec>,
     pub lists_targets: bool,
     pub default_memory_budget_mb: u32,
+    pub simulated: bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -155,6 +157,8 @@ pub enum Problem {
     CaptureRestarted,
     CaptureLost,
     DiskFull { folder: PathBuf },
+    WriteFailed,
+    EncoderFailed,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -203,6 +207,8 @@ impl Problem {
             Self::CaptureRestarted => "Capture stopped for a moment and was restarted",
             Self::CaptureLost => "Capture stopped and could not be restarted",
             Self::DiskFull { .. } => "The disk is full",
+            Self::WriteFailed => "A file could not be written",
+            Self::EncoderFailed => "The video encoder stopped working",
         }
     }
 }

@@ -7,8 +7,12 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 publish.workspace = true
+build = "build.rs"
+links = "ngine_recorder"
 
 [dependencies]
+ngine-capture = { path = "../ngine-capture" }
+ngine-media = { path = "../ngine-media" }
 sysinfo = { version = "=0.40.3", default-features = false, features = ["system"] }
 
 [dev-dependencies]

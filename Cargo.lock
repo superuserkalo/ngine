@@ -1846,6 +1846,8 @@ name = "ngine"
 version = "0.0.0"
 dependencies = [
  "interprocess",
+ "ngine-capture",
+ "ngine-recorder",
  "objc2 0.6.5",
  "objc2-app-kit 0.3.2",
  "objc2-foundation 0.3.2",
@@ -1872,12 +1874,15 @@ name = "ngine-media"
 version = "0.0.0"
 dependencies = [
  "bindgen 0.73.2",
+ "ngine-capture",
 ]
 
 [[package]]
 name = "ngine-recorder"
 version = "0.0.0"
 dependencies = [
+ "ngine-capture",
+ "ngine-media",
  "proptest",
  "sysinfo",
 ]

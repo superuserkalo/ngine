@@ -3,6 +3,8 @@ use std::path::Path;
 use super::{Autostart, BACKGROUND_FLAG, Folders};
 
 pub const VIDEOS_FOLDER: &str = "Movies";
+pub const SAMPLE_OUTPUT_FOLDER: &str = "~/Movies/ngine";
+pub const SAMPLE_BUFFER_FOLDER: &str = "~/Library/Caches/ngine/replay";
 pub const LISTS_CAPTURE_TARGETS: bool = true;
 
 const AGENT_FILE: &str = "Library/LaunchAgents/ngine.plist";

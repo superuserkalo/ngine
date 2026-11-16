@@ -3,6 +3,8 @@ use std::path::Path;
 use super::{Autostart, BACKGROUND_FLAG, Folders};
 
 pub const VIDEOS_FOLDER: &str = "Videos";
+pub const SAMPLE_OUTPUT_FOLDER: &str = "~\\Videos\\ngine";
+pub const SAMPLE_BUFFER_FOLDER: &str = "~\\AppData\\Local\\ngine\\Cache\\replay";
 pub const LISTS_CAPTURE_TARGETS: bool = true;
 
 const STARTUP_FILE: &str = "Microsoft\\Windows\\Start Menu\\Programs\\Startup\\ngine.cmd";

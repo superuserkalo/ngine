@@ -11,7 +11,7 @@ mod os;
 #[path = "platform/windows.rs"]
 mod os;
 
-pub use os::{LISTS_CAPTURE_TARGETS, VIDEOS_FOLDER};
+pub use os::{LISTS_CAPTURE_TARGETS, SAMPLE_BUFFER_FOLDER, SAMPLE_OUTPUT_FOLDER, VIDEOS_FOLDER};
 
 pub const BACKGROUND_FLAG: &str = "--background";
 

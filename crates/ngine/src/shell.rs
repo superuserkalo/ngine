@@ -3,12 +3,16 @@ use std::path::PathBuf;
 use std::sync::mpsc;
 use std::time::Duration;
 
+use ngine_capture::Capturer;
+use ngine_recorder::replay::remove_leftovers;
 use rune::dirs::AppDirs;
 use rune::{App, AppHandle, AppSpec, OverlayHandle, ShortcutError, ShortcutId};
 
 use crate::app::{self, Action, NAME, Ngine, WINDOW_SIZE};
 use crate::cli::{Command, Reply};
+use crate::engine::Engine;
 use crate::engine::fake::{Clock, FakeEngine};
+use crate::engine::real::RealEngine;
 use crate::hotkeys;
 use crate::ipc::{self, Address};
 use crate::platform::{self, Autostart, Folders};
@@ -178,8 +182,20 @@ impl Places {
     fn start(&self) -> Ngine {
         let mut store = Store::open(&self.dirs.config().join(SETTINGS_FILE));
         let settings = store.load(self.default_settings());
-        let engine = FakeEngine::new(Clock::system(), platform::LISTS_CAPTURE_TARGETS);
-        Ngine::new(Box::new(engine), None, settings, store)
+        if let Err(error) = remove_leftovers(&settings.replay.buffer_folder) {
+            eprintln!("ngine: old replay buffer files could not be removed: {error}");
+        }
+        let engine: Box<dyn Engine> = match Capturer::system() {
+            Ok(capturer) => Box::new(RealEngine::new(capturer)),
+            Err(error) => {
+                eprintln!("ngine: capture is simulated on this system: {error}");
+                Box::new(FakeEngine::new(
+                    Clock::system(),
+                    platform::LISTS_CAPTURE_TARGETS,
+                ))
+            }
+        };
+        Ngine::new(engine, None, settings, store)
     }
 }
 

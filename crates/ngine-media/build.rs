@@ -28,6 +28,9 @@ fn main() -> Result<(), String> {
     {
         println!("cargo:rustc-link-arg=-Wl,-rpath,{}", lib.display());
     }
+    if required_env("CARGO_CFG_TARGET_OS")? == "macos" {
+        println!("cargo:rustc-link-arg=-Wl,-rpath,/usr/lib/swift");
+    }
     println!("cargo:lib-dir={}", lib.display());
 
     let out = PathBuf::from(required_env("OUT_DIR")?).join("bindings.rs");

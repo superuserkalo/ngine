@@ -4,7 +4,7 @@ use rune::El;
 use rune::tok::space;
 use rune::{col, row, text};
 
-use super::PREVIEW_NOTE;
+use super::build_note;
 use super::record::cost_words;
 use super::widgets::{
     Choice, Input, Paint, STRONG, Segments, Stops, caption, card, input, section, segmented,
@@ -588,7 +588,7 @@ fn general(p: &Paint, app: &Ngine) -> El {
                                 .font(STRONG)
                                 .color(p.t.text),
                         )
-                        .child(caption(p, "about-note", PREVIEW_NOTE)),
+                        .child(caption(p, "about-note", build_note(app))),
                 ),
             ],
         ))

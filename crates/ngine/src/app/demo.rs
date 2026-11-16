@@ -4,10 +4,11 @@ use std::time::Duration;
 use super::{Action, Ngine, Screen, SettingsTab};
 use crate::engine::fake::{Clock, FakeEngine};
 use crate::engine::{Permission, Problem, ReplayStorage, TargetKind};
+use crate::platform;
 use crate::settings::{Settings, Store};
 
-const OUTPUT_FOLDER: &str = "~/Videos/ngine";
-const BUFFER_FOLDER: &str = "~/.cache/ngine/replay";
+pub const OUTPUT_FOLDER: &str = platform::SAMPLE_OUTPUT_FOLDER;
+const BUFFER_FOLDER: &str = platform::SAMPLE_BUFFER_FOLDER;
 
 pub fn settings() -> Settings {
     Settings::defaults(PathBuf::from(OUTPUT_FOLDER), PathBuf::from(BUFFER_FOLDER))

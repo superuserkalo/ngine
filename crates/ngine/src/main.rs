@@ -4,6 +4,7 @@ mod app;
 mod cli;
 mod engine;
 mod format;
+mod headless;
 mod hotkeys;
 mod ipc;
 mod platform;
@@ -34,8 +35,15 @@ fn main() -> Result<(), Failure> {
         None => shell::run(false),
         Some(platform::BACKGROUND_FLAG) => shell::run(true),
         Some("--help" | "-h" | "help") => {
-            println!("{}", cli::USAGE);
+            println!("{}\n\n{}", cli::USAGE, headless::USAGE);
             Ok(())
+        }
+        Some(command @ ("record" | "replay"))
+            if arguments
+                .get(1)
+                .is_some_and(|option| option.starts_with("--")) =>
+        {
+            headless::run(command, &arguments[1..])
         }
         Some("--version") => {
             println!("{} {}", app::NAME, app::VERSION);

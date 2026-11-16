@@ -10,6 +10,9 @@ publish.workspace = true
 build = "build.rs"
 links = "ngine_ffmpeg"
 
+[target.'cfg(target_os = "macos")'.dependencies]
+ngine-capture = { path = "../ngine-capture" }
+
 [build-dependencies]
 bindgen = { version = "=0.73.2", default-features = false, features = ["runtime"] }
 

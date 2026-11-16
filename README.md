@@ -11,9 +11,11 @@ into clips. One small native app, the same on every operating system.
 
 ## Status
 
-ngine is being built. The app opens with its window, settings, tray icon and
-hotkeys, but they drive a simulated engine. It does not record anything yet,
-and there is nothing to download.
+ngine is being built. On macOS it records a screen, a window or an app with
+system sound and microphone, and keeps an instant replay buffer. The Windows
+and Linux code compiles and passes its tests but has never been run on a real
+desktop. The library and the clip editor are placeholders, and there is
+nothing to download yet.
 
 ## Goals
 

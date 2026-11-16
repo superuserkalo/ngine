@@ -12,6 +12,16 @@ mod widgets;
 use widgets::{CAPTION, HEADING, Look, Paint, STRONG, button, caption};
 
 pub const PREVIEW_NOTE: &str = "Preview build. Capture is simulated and no file is written yet.";
+pub const EARLY_NOTE: &str =
+    "Early build. Recording and instant replay work. The library and the editor do not exist yet.";
+
+pub fn build_note(app: &Ngine) -> &'static str {
+    if app.capabilities.simulated {
+        PREVIEW_NOTE
+    } else {
+        EARLY_NOTE
+    }
+}
 
 const SIDEBAR_WIDTH: f32 = 176.0;
 const NAV_HEIGHT: f32 = 32.0;
@@ -152,7 +162,7 @@ fn sidebar(p: &Paint, app: &Ngine, under_window_buttons: bool) -> El {
                 .key("preview-note-box")
                 .w_full()
                 .px(space::S3)
-                .child(caption(p, "preview-note", PREVIEW_NOTE).w_full()),
+                .child(caption(p, "preview-note", build_note(app)).w_full()),
         )
         .child(button(p, "quit", "Quit ngine", Look::Plain, true, |app| {
             app.perform(Action::Quit);
@@ -191,6 +201,18 @@ fn problem_banner(problem: &Problem) -> Banner {
             key: "problem-capture-lost",
             title,
             detail: "What was recorded up to then is saved.".into(),
+            serious: true,
+        },
+        Problem::WriteFailed => Banner {
+            key: "problem-write-failed",
+            title,
+            detail: "What was written up to then is kept. Check the folder in Settings.".into(),
+            serious: true,
+        },
+        Problem::EncoderFailed => Banner {
+            key: "problem-encoder-failed",
+            title,
+            detail: "What was recorded up to then is saved. Try another codec in Settings.".into(),
             serious: true,
         },
         Problem::DiskFull { folder } => Banner {

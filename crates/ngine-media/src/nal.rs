@@ -5,8 +5,8 @@ const H264_LAST_SLICE_TYPE: u8 = 5;
 const HEVC_IDR_W_RADL: u8 = 19;
 const HEVC_IDR_N_LP: u8 = 20;
 const HEVC_LAST_SLICE_TYPE: u8 = 31;
-const AVCC_LENGTH_SIZE_AT: usize = 4;
-const HVCC_LENGTH_SIZE_AT: usize = 21;
+pub(crate) const AVCC_LENGTH_SIZE_AT: usize = 4;
+pub(crate) const HVCC_LENGTH_SIZE_AT: usize = 21;
 
 pub(crate) fn starts_closed_group(codec: VideoCodec, extradata: &[u8], packet: &[u8]) -> bool {
     let slice_type = match codec {
@@ -25,14 +25,14 @@ pub(crate) fn starts_closed_group(codec: VideoCodec, extradata: &[u8], packet: &
     slice_type.unwrap_or(true)
 }
 
-fn length_size(extradata: &[u8], at: usize) -> Option<usize> {
+pub(crate) fn length_size(extradata: &[u8], at: usize) -> Option<usize> {
     match (extradata.first(), extradata.get(at)) {
         (Some(1), Some(byte)) => Some(usize::from(byte & 3) + 1),
         _ => None,
     }
 }
 
-fn units(packet: &[u8], length_size: Option<usize>) -> Vec<&[u8]> {
+pub(crate) fn units(packet: &[u8], length_size: Option<usize>) -> Vec<&[u8]> {
     match length_size {
         Some(size) => length_prefixed_units(packet, size),
         None => start_code_units(packet),

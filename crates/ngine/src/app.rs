@@ -1,7 +1,9 @@
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use rune::{Key, KeyEvent, TextEdit, Tx};
 
+use crate::editor::Editor;
 use crate::engine::fake::FakeEngine;
 use crate::engine::{
     Capabilities, Engine, Event, Problem, RecordingRequest, ReplayRequest, ReplayStorage, Status,
@@ -9,12 +11,14 @@ use crate::engine::{
 };
 use crate::format;
 use crate::hotkeys;
+use crate::library::{self, Library};
 use crate::settings::{Settings, Store};
 use crate::shell::Shell;
 use crate::tray;
 
 mod actions;
 pub mod demo;
+mod media;
 
 pub use actions::Action;
 
@@ -121,6 +125,11 @@ pub struct Ngine {
     pub confirmation: Option<Confirmation>,
     pub fields: Fields,
     pub hotkey_problems: [Option<String>; hotkeys::COUNT],
+    pub library: Library,
+    pub editor: Option<Editor>,
+    pub rename: TextEdit,
+    pub renaming: Option<PathBuf>,
+    pub trash: fn(&Path) -> Result<(), String>,
     shell: Option<Shell>,
     clock: f64,
     settings_dirty: bool,
@@ -159,6 +168,11 @@ impl Ngine {
             confirmation: None,
             fields: Fields::of(&settings),
             hotkey_problems: hotkeys::problems(&settings.hotkeys),
+            library: Library::offline(),
+            editor: None,
+            rename: TextEdit::new(""),
+            renaming: None,
+            trash: library::move_to_trash,
             capabilities,
             settings,
             shell: None,
@@ -358,9 +372,11 @@ impl Ngine {
                 .retain(|problem| !matches!(problem, Problem::PermissionMissing(_))),
             Event::RecordingStopped { length, .. } => {
                 self.confirm(format!("Recording saved · {}", format::length(length)));
+                self.refresh_library();
             }
             Event::ReplaySaved { length, .. } => {
                 self.confirm(format!("Replay saved · {}", format::length(length)));
+                self.refresh_library();
             }
             Event::Problem(problem) => self.raise(problem),
             Event::ReplayStarted | Event::ReplayStopped | Event::MarkerAdded { .. } => {}
@@ -419,6 +435,7 @@ impl Ngine {
     pub fn sync(&mut self, clock: f64) -> bool {
         self.clock = clock;
         let mut changed = self.refresh();
+        changed |= self.follow_media();
         changed |= self.expire();
         if self.settings_dirty {
             self.settings_dirty = false;
@@ -443,7 +460,9 @@ impl Ngine {
 
 pub fn poll(app: &mut Ngine, clock: f64, tx: &mut Tx) -> bool {
     let changed = app.sync(clock);
-    if app.wants_ticks() {
+    if let Some(soon) = app.media_wants_ticks() {
+        tx.wake_after(soon);
+    } else if app.wants_ticks() {
         tx.wake_after(TICK);
     }
     changed
@@ -456,7 +475,11 @@ pub fn on_key(app: &mut Ngine, event: &KeyEvent, tx: &mut Tx) -> bool {
             app.save_settings();
             tx.quit();
         }
-        Key::Command(',') => app.screen = Screen::Settings,
+        Key::Command(',') => app.show(Screen::Settings),
+        Key::Escape if app.renaming.is_some() => app.cancel_rename(),
+        _ if app.screen == Screen::Editor && tx.focused().is_none_or(|key| key != "rename") => {
+            return app.editor_key(event);
+        }
         _ => return false,
     }
     true

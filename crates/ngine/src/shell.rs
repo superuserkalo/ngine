@@ -1,5 +1,5 @@
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::Duration;
 
@@ -23,10 +23,17 @@ use crate::ui;
 
 const SETTINGS_FILE: &str = "settings.json";
 const REPLAY_BUFFER_FOLDER: &str = "replay";
+const THUMBNAIL_FOLDER: &str = "thumbnails";
 const ANSWER_TIMEOUT: Duration = Duration::from_secs(5);
 const TOAST_FADE: Duration = Duration::from_millis(200);
 const SAMPLE_CONFIRMATION: &str = "Replay saved · 31 s";
 pub const OVERLAY_FLAG: &str = "--overlay";
+/// Tooling draws the library of the folder that follows this flag.
+pub const LIBRARY_FLAG: &str = "--library-of";
+/// Tooling draws the clip editor on the video that follows this flag.
+pub const EDITOR_FLAG: &str = "--editor-on";
+/// The seconds into the video that the editor's playhead is put at.
+pub const EDITOR_AT_FLAG: &str = "--editor-at";
 
 /// The parts of the running app that live outside its window: the tray icon,
 /// the saved-replay overlay, global hotkeys, the login entry and the command
@@ -195,7 +202,9 @@ impl Places {
                 ))
             }
         };
-        Ngine::new(engine, None, settings, store)
+        let mut app = Ngine::new(engine, None, settings, store);
+        app.use_library_on_disk(self.dirs.cache().join(THUMBNAIL_FOLDER));
+        app
     }
 }
 
@@ -243,12 +252,42 @@ pub fn run(background: bool) -> Result<(), String> {
     app.try_run()
 }
 
+fn taken_value(arguments: &mut Vec<String>, flag: &str) -> Option<String> {
+    let at = arguments.iter().position(|argument| argument == flag)?;
+    arguments.remove(at);
+    (at < arguments.len()).then(|| arguments.remove(at))
+}
+
 /// Runs Rune's headless tooling (`--snap`, `--tree`, `--list-scenes` and the
 /// rest) on a simulated app that touches no settings file, socket or tray.
 ///
 /// With [`OVERLAY_FLAG`] among the arguments, the tooling draws the
 /// saved-replay overlay instead of the window.
 pub fn run_tooling(mut arguments: Vec<String>) -> Result<(), String> {
+    if let Some(folder) = taken_value(&mut arguments, LIBRARY_FLAG) {
+        return App::new(spec())
+            .args(arguments)
+            .init(move || {
+                let mut app = app::demo::idle();
+                app.show_library_of(Path::new(&folder));
+                app
+            })
+            .try_run();
+    }
+    if let Some(file) = taken_value(&mut arguments, EDITOR_FLAG) {
+        let at = taken_value(&mut arguments, EDITOR_AT_FLAG)
+            .and_then(|seconds| seconds.parse().ok())
+            .and_then(|seconds| Duration::try_from_secs_f64(seconds).ok())
+            .unwrap_or_default();
+        return App::new(spec())
+            .args(arguments)
+            .init(move || {
+                let mut app = app::demo::idle();
+                app.show_editor_on(Path::new(&file), at);
+                app
+            })
+            .try_run();
+    }
     let wanted = arguments.len();
     arguments.retain(|argument| argument != OVERLAY_FLAG);
     if arguments.len() == wanted {

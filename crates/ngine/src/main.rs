@@ -2,17 +2,21 @@ use std::fmt;
 
 mod app;
 mod cli;
+mod editor;
 mod engine;
 mod format;
 mod headless;
 mod hotkeys;
 mod ipc;
+mod library;
 mod platform;
 mod settings;
 mod shell;
+mod speaker;
 mod toast;
 mod tray;
 mod ui;
+mod work;
 
 struct Failure(String);
 

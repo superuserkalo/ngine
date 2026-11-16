@@ -67,7 +67,7 @@ impl Journal {
     }
 }
 
-fn append_box(recording: &Path, markers: &[u64]) -> io::Result<()> {
+pub(crate) fn append_box(recording: &Path, markers: &[u64]) -> io::Result<()> {
     let count = u32::try_from(markers.len()).map_err(io::Error::other)?;
     let size = BOX_HEADER_BYTES + PAYLOAD_HEADER_BYTES as u64 + u64::from(count) * 8;
     let size = u32::try_from(size).map_err(io::Error::other)?;

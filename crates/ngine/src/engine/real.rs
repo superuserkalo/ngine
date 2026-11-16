@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, Sender};
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use ngine_capture::{CaptureError, Capturer, PickedTarget, PickerOptions};
 use ngine_recorder::replay::{
@@ -13,6 +13,8 @@ use ngine_recorder::{
     RecorderEvent, RecordingStart, ReplaySaveRequest, ReplaySetup, VideoCodec, VideoSettings,
     bit_rate_cap, unused_path, working_video_codecs, working_video_encoders,
 };
+
+use crate::format;
 
 use super::{
     Audio, AudioSource, Capabilities, Codec, Engine, Event, Permission, Problem, Quality,
@@ -54,6 +56,10 @@ pub struct RealEngine {
     targets_picked: u32,
     earlier_parts: Duration,
     save_folder: Option<PathBuf>,
+}
+
+fn stamped(kind: &str) -> String {
+    format::stamped(kind, &format::local(SystemTime::now()))
 }
 
 fn video_codec(codec: Codec) -> VideoCodec {
@@ -452,7 +458,7 @@ impl Engine for RealEngine {
         {
             return Err(Refusal::AlreadyRecording);
         }
-        let file = unused_path(&request.folder, RECORDING_NAME);
+        let file = unused_path(&request.folder, &stamped(RECORDING_NAME));
         let session = self.session_for(&request.target, request.video, request.audio)?;
         session
             .recorder
@@ -519,7 +525,7 @@ impl Engine for RealEngine {
                     ReplaySpan::Everything => SaveRange::Everything,
                 },
                 folder: replay.folder.clone(),
-                name: REPLAY_NAME.to_owned(),
+                name: stamped(REPLAY_NAME),
             })
             .map_err(|_| Refusal::NothingHeld)
     }

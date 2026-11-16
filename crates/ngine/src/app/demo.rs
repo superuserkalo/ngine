@@ -1,9 +1,13 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
+use ngine_recorder::Cut;
+
 use super::{Action, Ngine, Screen, SettingsTab};
+use crate::editor::{Editor, Exporting, Source};
 use crate::engine::fake::{Clock, FakeEngine};
 use crate::engine::{Permission, Problem, ReplayStorage, TargetKind};
+use crate::library::Library;
 use crate::platform;
 use crate::settings::{Settings, Store};
 
@@ -145,6 +149,24 @@ fn settings_reset(app: &mut Ngine) {
     app.settings_were_reset = true;
 }
 
+fn library(app: &mut Ngine) {
+    app.library = Library::sample(&app.settings.output_folder);
+    app.screen = Screen::Library;
+}
+
+fn editor(app: &mut Ngine) {
+    library(app);
+    let file = app.library.path(0).unwrap_or_default();
+    app.editor = Some(Editor::sample(&file));
+    app.screen = Screen::Editor;
+}
+
+fn in_editor(app: &mut Ngine, change: impl FnOnce(&mut Editor)) {
+    if let Some(editor) = &mut app.editor {
+        change(editor);
+    }
+}
+
 pub type Scene = (&'static str, fn(&mut Ngine));
 
 pub const SCENES: &[Scene] = &[
@@ -182,6 +204,53 @@ pub const SCENES: &[Scene] = &[
     ("settings-general", |app| {
         settings_tab(app, SettingsTab::General);
     }),
-    ("library", |app| app.screen = Screen::Library),
-    ("editor", |app| app.screen = Screen::Editor),
+    ("library", library),
+    ("library-empty", |app| app.screen = Screen::Library),
+    ("library-renaming", |app| {
+        library(app);
+        app.start_rename(3);
+    }),
+    ("editor", editor),
+    ("editor-empty", |app| app.screen = Screen::Editor),
+    ("editor-playing", |app| {
+        editor(app);
+        in_editor(app, |editor| editor.playing = true);
+    }),
+    ("editor-exact-muted", |app| {
+        editor(app);
+        in_editor(app, |editor| {
+            editor.cut = Cut::Exact;
+            editor.set_level(Source::Microphone, |level| level.on = false);
+            editor.set_level(Source::System, |level| level.percent = 60);
+        });
+    }),
+    ("editor-mix-only", |app| {
+        editor(app);
+        in_editor(app, |editor| editor.info.audio_tracks = 1);
+    }),
+    ("editor-exporting", |app| {
+        editor(app);
+        in_editor(app, |editor| {
+            editor.exporting = Exporting::Running {
+                done: 0.42,
+                live: None,
+            };
+        });
+    }),
+    ("editor-exported", |app| {
+        editor(app);
+        let file = PathBuf::from(OUTPUT_FOLDER).join("Clip 2026-11-16 14.09.51.mp4");
+        in_editor(app, |editor| {
+            editor.exporting = Exporting::Done {
+                file,
+                length: Duration::from_secs(42),
+            };
+        });
+    }),
+    ("editor-export-failed", |app| {
+        editor(app);
+        in_editor(app, |editor| {
+            editor.exporting = Exporting::Failed("The disk is full".into());
+        });
+    }),
 ];

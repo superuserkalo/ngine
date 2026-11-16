@@ -471,9 +471,9 @@ fn the_navigation_reaches_the_library_and_the_clip_editor() {
     let mut runtime = scene("idle");
     press(&mut runtime, "nav-library");
     assert_eq!(words(&runtime, "library-title"), "Library");
-    assert_eq!(words(&runtime, "library-state"), "Not built yet");
+    assert_eq!(words(&runtime, "library-empty-title"), "No recordings yet");
     press(&mut runtime, "nav-editor");
-    assert_eq!(words(&runtime, "editor-title"), "Clip editor");
+    assert_eq!(words(&runtime, "editor-empty-title"), "No recording open");
     press(&mut runtime, "nav-settings");
     assert!(shows(&runtime, "settings-tab"));
     press(&mut runtime, "nav-record");

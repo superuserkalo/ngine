@@ -5,6 +5,8 @@ use crate::app::{Action, NAME, Ngine, Screen, VERSION};
 use crate::engine::{Permission, Problem};
 use crate::format;
 
+mod editor;
+mod library;
 mod record;
 mod settings;
 mod widgets;
@@ -12,8 +14,7 @@ mod widgets;
 use widgets::{CAPTION, HEADING, Look, Paint, STRONG, button, caption};
 
 pub const PREVIEW_NOTE: &str = "Preview build. Capture is simulated and no file is written yet.";
-pub const EARLY_NOTE: &str =
-    "Early build. Recording and instant replay work. The library and the editor do not exist yet.";
+pub const EARLY_NOTE: &str = "Early build. So far it has only been run on macOS.";
 
 pub fn build_note(app: &Ngine) -> &'static str {
     if app.capabilities.simulated {
@@ -28,7 +29,6 @@ const NAV_HEIGHT: f32 = 32.0;
 const DOT: f32 = 8.0;
 const CONTENT_PADDING: f32 = 20.0;
 const SECTION_GAP: f32 = 16.0;
-const PLACEHOLDER_HEIGHT: f32 = 420.0;
 const WINDOW_BUTTONS_HEIGHT: f32 = 24.0;
 
 const NAVIGATION: [(Screen, &str, &str); 4] = [
@@ -57,7 +57,7 @@ fn nav_item(p: &Paint, app: &Ngine, screen: Screen, key: &str, label: &str) -> E
         .hover(p.t.hover)
         .press(p.t.press)
         .focusable(true)
-        .on_press(move |app: &mut Ngine| app.screen = screen)
+        .on_press(move |app: &mut Ngine| app.show(screen))
         .child(
             text(label)
                 .font(type_::LABEL)
@@ -309,40 +309,18 @@ fn notice(p: &Paint, app: &Ngine) -> Option<El> {
     )
 }
 
-fn placeholder(p: &Paint, key: &str, title: &str, words: &str) -> El {
-    col()
-        .key(key)
-        .w_full()
-        .h(PLACEHOLDER_HEIGHT)
-        .center()
-        .gap(space::S2)
-        .child(
-            text(title)
-                .key(format!("{key}-title"))
-                .font(HEADING)
-                .color(p.t.text),
-        )
-        .child(caption(p, &format!("{key}-words"), words))
-        .child(caption(p, &format!("{key}-state"), "Not built yet"))
-}
-
 pub fn view(app: &Ngine, cx: &mut Cx<Ngine>) -> El {
     let p = &Paint::dark(cx.env().scale);
     let screen = match app.screen {
         Screen::Record => record::view(p, app),
         Screen::Settings => settings::view(p, app),
-        Screen::Library => placeholder(
-            p,
-            "library",
-            "Library",
-            "Your recordings and clips will be listed here.",
-        ),
-        Screen::Editor => placeholder(
-            p,
-            "editor",
-            "Clip editor",
-            "Preview a recording, trim it and export a clip here.",
-        ),
+        Screen::Library => library::view(p, app),
+        Screen::Editor => {
+            let width = cx
+                .layout_size("timeline")
+                .map_or(editor::TIMELINE_WIDTH, |size| size[0]);
+            editor::view(p, app, width)
+        }
     };
     let mut content = col()
         .key("content")
@@ -377,5 +355,7 @@ pub fn view(app: &Ngine, cx: &mut Cx<Ngine>) -> El {
         )
 }
 
+#[cfg(test)]
+mod media_tests;
 #[cfg(test)]
 mod tests;

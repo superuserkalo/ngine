@@ -1,11 +1,14 @@
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use super::{Autostart, BACKGROUND_FLAG, Folders};
 
 pub const VIDEOS_FOLDER: &str = "Videos";
 pub const SAMPLE_OUTPUT_FOLDER: &str = "~/Videos/ngine";
 pub const SAMPLE_BUFFER_FOLDER: &str = "~/.cache/ngine/replay";
+pub const FILE_MANAGER: &str = "file manager";
+pub const TRASH: &str = "Trash";
 pub const LISTS_CAPTURE_TARGETS: bool = false;
 
 const ENTRY_FILE: &str = "autostart/ngine.desktop";
@@ -24,6 +27,12 @@ fn program_to_start(running: &Path, appimage: Option<OsString>) -> PathBuf {
     appimage
         .filter(|path| !path.is_empty())
         .map_or_else(|| running.to_path_buf(), PathBuf::from)
+}
+
+pub fn reveal(file: &Path) -> Command {
+    let mut command = Command::new("xdg-open");
+    command.arg(file.parent().unwrap_or(file));
+    command
 }
 
 pub fn autostart(folders: &Folders<'_>, running: &Path) -> Autostart {

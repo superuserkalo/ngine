@@ -11,7 +11,10 @@ mod os;
 #[path = "platform/windows.rs"]
 mod os;
 
-pub use os::{LISTS_CAPTURE_TARGETS, SAMPLE_BUFFER_FOLDER, SAMPLE_OUTPUT_FOLDER, VIDEOS_FOLDER};
+pub use os::{
+    FILE_MANAGER, LISTS_CAPTURE_TARGETS, SAMPLE_BUFFER_FOLDER, SAMPLE_OUTPUT_FOLDER, TRASH,
+    VIDEOS_FOLDER,
+};
 
 pub const BACKGROUND_FLAG: &str = "--background";
 
@@ -32,6 +35,17 @@ pub struct Folders<'a> {
         )
     )]
     pub config: &'a Path,
+}
+
+/// Shows a file in the system's file manager.
+pub fn reveal(file: &Path) -> io::Result<()> {
+    let mut shown = os::reveal(file).spawn()?;
+    std::thread::Builder::new()
+        .name("ngine-reveal".to_owned())
+        .spawn(move || {
+            let _file_manager_closed = shown.wait();
+        })
+        .map(drop)
 }
 
 /// The file that makes the operating system start ngine when the user logs

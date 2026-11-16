@@ -149,6 +149,7 @@ impl Launch for WaylandLaunch {
             microphone: pw::microphone_choice(&self.options.microphone),
             frame_rate: self.options.frame_rate,
             pixel_format: self.options.pixel_format,
+            gpu_surfaces: self.options.gpu_surfaces,
             reporter: Some(Reporter {
                 signals: signals.clone(),
                 generation,
@@ -189,6 +190,10 @@ fn only_picked() -> CaptureError {
 }
 
 impl Backend for WaylandBackend {
+    fn name(&self) -> &'static str {
+        "PipeWire through the desktop portal (Wayland)"
+    }
+
     fn target_lister(&self) -> Option<&dyn ListTargets> {
         None
     }

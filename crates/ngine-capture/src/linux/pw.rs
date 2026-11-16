@@ -21,18 +21,19 @@ use spa::param::format::{FormatProperties, MediaSubtype, MediaType};
 use spa::param::format_utils;
 use spa::param::video::{VideoFormat, VideoInfoRaw};
 use spa::pod::serialize::PodSerializer;
-use spa::pod::{ChoiceValue, Object, Pod, Property, Value};
+use spa::pod::{ChoiceValue, Object, Pod, Property, PropertyFlags, Value};
 use spa::utils::{Choice, ChoiceEnum, ChoiceFlags, Direction, Fraction, Id, Rectangle, SpaTypes};
 
 use super::clock::{self, FrameLimiter, GraphTime};
 use super::lifecycle::{self, Change, Lifecycle};
 use super::nodes::{self, Node};
 use super::pixels::{self, Chunk, Layout};
-use super::{monotonic, samples};
+use super::surface::{DmaBufPlane, DmaBufSurface};
+use super::{descriptor, monotonic, samples};
 use crate::audio::{AudioBuffer, AudioSource};
 use crate::error::CaptureError;
 use crate::event::{EndReason, Event};
-use crate::frame::{PixelFormat, Size, VideoFrame};
+use crate::frame::{PixelFormat, Size, Surface, VideoFrame};
 use crate::session::EventSink;
 use crate::supervisor::{self, Signal};
 use crate::time::Timestamp;
@@ -42,6 +43,13 @@ const ANSWERS_WITHIN: Duration = Duration::from_secs(3);
 const LARGEST_SIDE: u32 = 16_384;
 const BROKEN_PIPE: i32 = -32;
 const DEFAULT_SOURCE_KEY: &str = "default.audio.source";
+const MODIFIER_THE_DRIVER_CHOSE: i64 = 0x00ff_ffff_ffff_ffff;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Memory {
+    Shared,
+    DmaBuf,
+}
 
 pub(super) struct VideoSource {
     pub(super) remote: OwnedFd,
@@ -86,6 +94,7 @@ pub(super) struct Request {
     pub(super) microphone: MicrophoneChoice,
     pub(super) frame_rate: u32,
     pub(super) pixel_format: PixelFormat,
+    pub(super) gpu_surfaces: bool,
     pub(super) reporter: Option<Reporter>,
 }
 
@@ -184,8 +193,21 @@ fn layout_of(format: VideoFormat) -> Option<Layout> {
     .find(|layout| spa_format(*layout) == format)
 }
 
-fn video_formats(wanted: PixelFormat, frame_rate: u32) -> Result<Vec<u8>, CaptureError> {
-    let offered: Vec<Id> = pixels::preference(wanted)
+fn video_formats(
+    wanted: PixelFormat,
+    frame_rate: u32,
+    memory: Memory,
+) -> Result<Vec<u8>, CaptureError> {
+    let layouts = match memory {
+        Memory::Shared => pixels::preference(wanted),
+        Memory::DmaBuf => pixels::preference_in_one_plane(wanted),
+    };
+    let modifier = (memory == Memory::DmaBuf).then(|| Property {
+        key: FormatProperties::VideoModifier.as_raw(),
+        flags: PropertyFlags::MANDATORY,
+        value: Value::Long(MODIFIER_THE_DRIVER_CHOSE),
+    });
+    let offered: Vec<Id> = layouts
         .into_iter()
         .map(|layout| Id(spa_format(layout).as_raw()))
         .collect();
@@ -199,54 +221,60 @@ fn video_formats(wanted: PixelFormat, frame_rate: u32) -> Result<Vec<u8>, Captur
     };
     let rate = |num| Fraction { num, denom: 1 };
     let property = |key: FormatProperties, value| Property::new(key.as_raw(), value);
+    let kind = [
+        property(
+            FormatProperties::MediaType,
+            Value::Id(Id(MediaType::Video.as_raw())),
+        ),
+        property(
+            FormatProperties::MediaSubtype,
+            Value::Id(Id(MediaSubtype::Raw.as_raw())),
+        ),
+        property(
+            FormatProperties::VideoFormat,
+            Value::Choice(ChoiceValue::Id(Choice(
+                ChoiceFlags::empty(),
+                ChoiceEnum::Enum {
+                    default: first,
+                    alternatives: offered,
+                },
+            ))),
+        ),
+    ];
     serialized(Object {
         type_: SpaTypes::ObjectParamFormat.as_raw(),
         id: ParamType::EnumFormat.as_raw(),
-        properties: vec![
-            property(
-                FormatProperties::MediaType,
-                Value::Id(Id(MediaType::Video.as_raw())),
-            ),
-            property(
-                FormatProperties::MediaSubtype,
-                Value::Id(Id(MediaSubtype::Raw.as_raw())),
-            ),
-            property(
-                FormatProperties::VideoFormat,
-                Value::Choice(ChoiceValue::Id(Choice(
-                    ChoiceFlags::empty(),
-                    ChoiceEnum::Enum {
-                        default: first,
-                        alternatives: offered,
-                    },
-                ))),
-            ),
-            property(
-                FormatProperties::VideoSize,
-                Value::Choice(ChoiceValue::Rectangle(Choice(
-                    ChoiceFlags::empty(),
-                    ChoiceEnum::Range {
-                        default: Rectangle {
-                            width: 1920,
-                            height: 1080,
+        properties: kind
+            .into_iter()
+            .chain(modifier)
+            .chain([
+                property(
+                    FormatProperties::VideoSize,
+                    Value::Choice(ChoiceValue::Rectangle(Choice(
+                        ChoiceFlags::empty(),
+                        ChoiceEnum::Range {
+                            default: Rectangle {
+                                width: 1920,
+                                height: 1080,
+                            },
+                            min: side(1),
+                            max: side(LARGEST_SIDE),
                         },
-                        min: side(1),
-                        max: side(LARGEST_SIDE),
-                    },
-                ))),
-            ),
-            property(
-                FormatProperties::VideoFramerate,
-                Value::Choice(ChoiceValue::Fraction(Choice(
-                    ChoiceFlags::empty(),
-                    ChoiceEnum::Range {
-                        default: rate(frame_rate.max(1)),
-                        min: rate(0),
-                        max: rate(frame_rate.max(1)),
-                    },
-                ))),
-            ),
-        ],
+                    ))),
+                ),
+                property(
+                    FormatProperties::VideoFramerate,
+                    Value::Choice(ChoiceValue::Fraction(Choice(
+                        ChoiceFlags::empty(),
+                        ChoiceEnum::Range {
+                            default: rate(frame_rate.max(1)),
+                            min: rate(0),
+                            max: rate(frame_rate.max(1)),
+                        },
+                    ))),
+                ),
+            ])
+            .collect(),
     })
 }
 
@@ -331,6 +359,28 @@ fn change_of(state: &StreamState) -> Option<Change> {
     }
 }
 
+fn dma_buf_surface(
+    layout: Layout,
+    size: Size,
+    modifier: u64,
+    datas: &[spa::buffer::Data],
+) -> Option<DmaBufSurface> {
+    let planes = datas
+        .iter()
+        .map(|data| {
+            let stride = u32::try_from(data.chunk().stride()).ok()?;
+            let ours = descriptor::duplicate_dma_buf(data)?;
+            Some(DmaBufPlane::new(ours, data.chunk().offset(), stride))
+        })
+        .collect::<Option<Vec<DmaBufPlane>>>()?;
+    Some(DmaBufSurface::new(
+        size,
+        layout.drm_fourcc(),
+        modifier,
+        planes,
+    ))
+}
+
 fn deliver_frame(stream: &pw::stream::Stream, state: &mut VideoState) {
     let Some(mut buffer) = stream.dequeue_buffer() else {
         return;
@@ -341,12 +391,25 @@ fn deliver_frame(stream: &pw::stream::Stream, state: &mut VideoState) {
         return;
     };
     let size = Size::new(state.format.size().width, state.format.size().height);
-    let Some(data) = buffer.datas_mut().first_mut() else {
-        return;
-    };
-    if data.type_() == DataType::DmaBuf || !state.limiter.accepts(timestamp) {
+    if !state.limiter.accepts(timestamp) {
         return;
     }
+    let datas = buffer.datas_mut();
+    if datas.first().map(spa::buffer::Data::type_) == Some(DataType::DmaBuf) {
+        let shared = dma_buf_surface(layout, size, state.format.modifier(), datas);
+        if let Some(surface) = shared {
+            state.ender.sink.video(VideoFrame::from_surface(
+                timestamp,
+                size,
+                layout.pixel_format(),
+                Surface::DmaBuf(surface),
+            ));
+        }
+        return;
+    }
+    let Some(data) = datas.first_mut() else {
+        return;
+    };
     let chunk = Chunk {
         offset: usize::try_from(data.chunk().offset()).unwrap_or(usize::MAX),
         size: usize::try_from(data.chunk().size()).unwrap_or(0),
@@ -408,15 +471,21 @@ fn video_stream(
         })
         .register()
         .map_err(|error| failed("could not listen to the screen stream", &error))?;
-    let formats = video_formats(request.pixel_format, request.frame_rate)?;
-    let offered = Pod::from_bytes(&formats)
-        .ok_or_else(|| CaptureError::Os("the video format description is empty".to_owned()))?;
+    let empty = || CaptureError::Os("the video format description is empty".to_owned());
+    let in_shared_memory = video_formats(request.pixel_format, request.frame_rate, Memory::Shared)?;
+    let in_a_dma_buf = video_formats(request.pixel_format, request.frame_rate, Memory::DmaBuf)?;
+    let shared = Pod::from_bytes(&in_shared_memory).ok_or_else(empty)?;
+    let mut offered = Vec::new();
+    if request.gpu_surfaces {
+        offered.push(Pod::from_bytes(&in_a_dma_buf).ok_or_else(empty)?);
+    }
+    offered.push(shared);
     stream
         .connect(
             Direction::Input,
             Some(source_node),
             StreamFlags::AUTOCONNECT | StreamFlags::MAP_BUFFERS,
-            &mut [offered],
+            &mut offered,
         )
         .map_err(|error| failed("could not connect the screen stream", &error))?;
     Ok((stream, listener))

@@ -7,7 +7,7 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 
 use ngine_capture::{AudioBuffer, Event, Timestamp, VideoFrame};
-use ngine_media::{EncoderInfo, Packet, StreamInfo};
+use ngine_media::{EncoderInfo, Packet, StreamInfo, SurfaceKind, imports_dma_bufs};
 
 use crate::audio::AudioStage;
 use crate::clip::{self, ClipJob, EpochStreams};
@@ -23,7 +23,7 @@ use crate::time::{
     duration_from_video_units, micros_from_video_units, replay_packet, video_units_from_nanos,
     video_units_from_ticks,
 };
-use crate::video::{Geometry, VideoStage, frame_period};
+use crate::video::{VideoStage, cannot_be_copied, frame_period, surface_kind};
 
 const KEYFRAME_INTERVAL_WITH_REPLAY: i64 = VIDEO_UNITS_PER_SECOND;
 const KEYFRAME_INTERVAL_WITHOUT_REPLAY: i64 = 2 * VIDEO_UNITS_PER_SECOND;
@@ -33,6 +33,8 @@ const STEP_ACROSS_A_LONG_GAP: i64 = VIDEO_UNITS_PER_SECOND;
 const LEAD_IN_PACKETS: usize = 16;
 const EPOCHS_REMEMBERED: usize = 32;
 const NANOS_PER_VIDEO_UNIT: i64 = 1_000_000_000 / VIDEO_UNITS_PER_SECOND;
+const LONGEST_JUMP_NANOS: i64 = 60 * 1_000_000_000;
+const MOST_GPU_ROUTE_FAILURES: u32 = 3;
 
 #[derive(Clone, Debug)]
 pub struct RecorderConfig {
@@ -95,6 +97,8 @@ pub struct Status {
     pub zero_copy: bool,
     pub frames_captured: u64,
     pub frames_repeated: u64,
+    /// Where the last captured frame lived when it arrived.
+    pub frames_arrive_as: Option<SurfaceKind>,
 }
 
 struct Stage {
@@ -117,6 +121,15 @@ impl Stage {
 
     fn now_frames(&self) -> u64 {
         u64::try_from(audio_frames_from_nanos(self.now_nanos)).unwrap_or(0)
+    }
+
+    fn jumps_ahead(&self, timestamp: Timestamp) -> bool {
+        self.nanos_at(timestamp).saturating_sub(self.now_nanos) > LONGEST_JUMP_NANOS
+    }
+
+    fn continue_at(&mut self, timestamp: Timestamp, period_nanos: i64) {
+        let resumes_at = self.now_nanos + period_nanos;
+        self.origin_nanos = i128::from(timestamp.as_nanos()) - i128::from(resumes_at);
     }
 }
 
@@ -192,6 +205,9 @@ pub struct Pipeline {
     files_being_completed: Vec<JoinHandle<()>>,
     frames_captured: u64,
     frames_repeated: u64,
+    frames_arrive_as: Option<SurfaceKind>,
+    gpu_route_failures: u32,
+    wants_cpu_frames: bool,
 }
 
 impl Pipeline {
@@ -212,7 +228,43 @@ impl Pipeline {
             files_being_completed: Vec::new(),
             frames_captured: 0,
             frames_repeated: 0,
+            frames_arrive_as: None,
+            gpu_route_failures: 0,
+            wants_cpu_frames: false,
         })
+    }
+
+    /// Whether capture should deliver DMA-BUFs on Linux, which only the
+    /// chosen encoder's import can read.
+    pub fn reads_dma_bufs(&self) -> bool {
+        imports_dma_bufs(&self.encoder.name)
+    }
+
+    /// True once frames arrived that the encoder could not read on the GPU
+    /// and that cannot be copied. Capture must be restarted without
+    /// [`SessionOptions::gpu_surfaces`](ngine_capture::SessionOptions) for
+    /// the picture to go on.
+    pub fn wants_cpu_frames(&self) -> bool {
+        self.wants_cpu_frames
+    }
+
+    fn gpu_route_allowed(&self) -> bool {
+        self.gpu_route_failures < MOST_GPU_ROUTE_FAILURES
+    }
+
+    /// Changes volumes and which sources are heard while the tracks go on
+    /// unbroken, so the replay buffer keeps what it holds.
+    /// [`RecorderError::NeedsANewRecorder`] says the change would alter the
+    /// number of tracks or their codec.
+    pub fn set_audio(&mut self, audio: AudioSettings) -> Result<(), RecorderError> {
+        if audio.track_count() != self.audio.track_count() || audio.codec != self.audio.codec {
+            return Err(RecorderError::NeedsANewRecorder);
+        }
+        self.audio = audio;
+        match self.stage.as_mut() {
+            Some(stage) => stage.audio.retune(&audio),
+            None => Ok(()),
+        }
     }
 
     fn keyframe_interval(&self) -> i64 {
@@ -249,11 +301,15 @@ impl Pipeline {
     /// Tells the pipeline the time on the capture clock, so a still picture
     /// keeps producing frames while no event arrives.
     pub fn tick(&mut self, now: Timestamp) -> Result<(), RecorderError> {
+        let period_nanos = self.period() * NANOS_PER_VIDEO_UNIT;
         let Some(stage) = self.stage.as_mut() else {
             return Ok(());
         };
         if self.waits_for_new_origin {
             return Ok(());
+        }
+        if stage.jumps_ahead(now) {
+            stage.continue_at(now, period_nanos);
         }
         stage.now_nanos = stage.now_nanos.max(stage.nanos_at(now));
         self.catch_up()
@@ -265,9 +321,16 @@ impl Pipeline {
         self.waits_for_new_origin = self.stage.is_some();
     }
 
-    fn begin_stage(&mut self, frame: &VideoFrame) -> Result<(), RecorderError> {
-        let geometry = Geometry::of(frame, &self.encoder);
-        let video = VideoStage::open(&self.video, &self.encoder, geometry)?;
+    fn begin_stage(&mut self, frame: &VideoFrame) -> Result<bool, RecorderError> {
+        let opened = VideoStage::open(&self.video, &self.encoder, frame, self.gpu_route_allowed())?;
+        if opened.gpu_route_failed {
+            self.gpu_route_failures = MOST_GPU_ROUTE_FAILURES;
+        }
+        let video = opened.stage;
+        if cannot_be_copied(video.surface()) && !video.reads_the_gpu_surface() {
+            self.wants_cpu_frames = true;
+            return Ok(false);
+        }
         let audio = AudioStage::open(&self.audio)?;
         let streams: Arc<[StreamInfo]> = std::iter::once(video.stream_info())
             .chain(audio.stream_infos())
@@ -285,7 +348,13 @@ impl Pipeline {
             now_nanos: 0,
         });
         self.waits_for_new_origin = false;
-        Ok(())
+        Ok(true)
+    }
+
+    fn leave_the_gpu_route(&mut self, frame: &VideoFrame) -> Result<(), RecorderError> {
+        self.gpu_route_failures += 1;
+        let _the_broken_encoder_may_not_flush = self.end_stage(true);
+        self.take_frame(frame)
     }
 
     fn end_stage(&mut self, recording_continues: bool) -> Result<(), RecorderError> {
@@ -313,6 +382,12 @@ impl Pipeline {
     }
 
     fn take_frame(&mut self, frame: &VideoFrame) -> Result<(), RecorderError> {
+        let surface = surface_kind(frame);
+        self.frames_arrive_as = Some(surface);
+        if cannot_be_copied(surface) && !self.gpu_route_allowed() {
+            self.wants_cpu_frames = true;
+            return Ok(());
+        }
         if self
             .stage
             .as_ref()
@@ -320,17 +395,16 @@ impl Pipeline {
         {
             self.end_stage(true)?;
         }
-        if self.stage.is_none() {
-            self.begin_stage(frame)?;
+        if self.stage.is_none() && !self.begin_stage(frame)? {
+            return Ok(());
         }
         let period = self.period();
         let interval = self.keyframe_interval();
         let Some(stage) = self.stage.as_mut() else {
             return Ok(());
         };
-        if self.waits_for_new_origin {
-            let resumes_at = stage.now_nanos + period * NANOS_PER_VIDEO_UNIT;
-            stage.origin_nanos = i128::from(frame.timestamp().as_nanos()) - i128::from(resumes_at);
+        if self.waits_for_new_origin || stage.jumps_ahead(frame.timestamp()) {
+            stage.continue_at(frame.timestamp(), period * NANOS_PER_VIDEO_UNIT);
             self.waits_for_new_origin = false;
         }
         let nanos = stage.nanos_at(frame.timestamp()).max(0);
@@ -342,7 +416,13 @@ impl Pipeline {
         let pts = stage.video.last_pts().map_or(captured_at, |last| {
             captured_at.max(last + (period / 4).max(1))
         });
-        let packets = stage.video.encode(frame, pts, interval)?;
+        let packets = match stage.video.encode(frame, pts, interval) {
+            Ok(packets) => packets,
+            Err(_) if stage.video.reads_the_gpu_surface() => {
+                return self.leave_the_gpu_route(frame);
+            }
+            Err(error) => return Err(error),
+        };
         stage.now_nanos = stage.now_nanos.max(nanos);
         self.frames_captured += 1;
         self.deliver(packets);
@@ -354,6 +434,9 @@ impl Pipeline {
             return Ok(());
         };
         if self.waits_for_new_origin {
+            return Ok(());
+        }
+        if stage.jumps_ahead(buffer.timestamp()) {
             return Ok(());
         }
         let start = stage.nanos_at(buffer.timestamp());
@@ -658,6 +741,13 @@ impl Pipeline {
     /// Snapshots the asked range and writes it on another thread. Each clip
     /// arrives as [`RecorderEvent::ReplaySaved`] with its real length.
     pub fn save_replay(&mut self, request: ReplaySaveRequest) -> Result<(), RecorderError> {
+        if self.replay.is_none() {
+            return Err(RecorderError::ReplayOff);
+        }
+        if let Some(stage) = self.stage.as_mut() {
+            let packets = stage.audio.advance_for_a_save(stage.now_frames())?;
+            self.deliver(packets);
+        }
         let replay = self.replay.as_mut().ok_or(RecorderError::ReplayOff)?;
         if replay.buffer.covered_duration() <= crate::replay::Ticks::ZERO {
             return Err(RecorderError::NothingHeld);
@@ -732,6 +822,7 @@ impl Pipeline {
                 .is_some_and(|stage| stage.video.reads_the_gpu_surface()),
             frames_captured: self.frames_captured,
             frames_repeated: self.frames_repeated,
+            frames_arrive_as: self.frames_arrive_as,
         }
     }
 

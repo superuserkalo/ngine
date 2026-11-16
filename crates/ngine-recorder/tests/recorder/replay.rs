@@ -7,8 +7,8 @@ use ngine_capture::{
 };
 use ngine_recorder::replay::{BackendChoice, ReplayLength, SaveRange};
 use ngine_recorder::{
-    CaptureSetup, Recorder, RecorderError, RecorderEvent, RecordingStart, ReplaySaveRequest,
-    ReplaySetup, Tracks,
+    AudioSettings, CaptureSetup, Recorder, RecorderError, RecorderEvent, RecordingStart,
+    ReplaySaveRequest, ReplaySetup, Tracks,
 };
 
 use crate::common::{
@@ -352,4 +352,90 @@ fn a_capture_that_cannot_start_is_reported_and_the_recorder_stops() {
         events.as_slice(),
         [RecorderEvent::CaptureLost(Some(error)), RecorderEvent::Stopped] if *error == denied
     ));
+}
+
+#[test]
+fn a_save_right_after_a_source_went_quiet_has_sound_to_the_end_of_its_picture() {
+    let folder = TempFolder::new("quiet-source");
+    let picture = gray(SIZE, 120);
+    let script = merged(vec![
+        Box::new(frames(FRAME_RATE, 0.0, 6.0, move |_| Arc::clone(&picture))),
+        Box::new(sound(Sound::system(), 0.0, 6.0, tone(SYSTEM_TONE))),
+        Box::new(sound(Sound::microphone(), 0.0, 5.7, tone(SYSTEM_TONE))),
+    ]);
+    let mut rig = Rig::new(&config(FRAME_RATE, Tracks::Three), script);
+    rig.pipeline
+        .set_replay(Some(replay(BackendChoice::Memory, &folder)))
+        .unwrap();
+    rig.run_until(6.0);
+    rig.pipeline
+        .save_replay(save(&folder, "clip", SaveRange::Everything))
+        .unwrap();
+    let (path, _) = rig.wait_for_saved_clip();
+
+    let file = File::decode(&path);
+    let picture_ends = file.video_micros().last().copied().unwrap() + 33_333;
+    let frames_heard = file.left_channel(0).len();
+    let sound_ends =
+        file.audio_start_micros(0) + i64::try_from(frames_heard * 1_000_000 / SAMPLE_RATE).unwrap();
+    assert!(
+        picture_ends - sound_ends < 80_000,
+        "the sound ends {} µs before the picture",
+        picture_ends - sound_ends
+    );
+    rig.run_to_the_end();
+}
+
+#[test]
+fn another_target_and_other_volumes_keep_the_recorder_and_its_recording() {
+    let folder = TempFolder::new("change-capture");
+    let fake = FakeCapture::new()
+        .with_script(picture_and_sound(0.0, 2.0, 1.0))
+        .with_script(picture_and_sound(50.0, 52.0, 51.0));
+    let log = fake.start_log();
+    let settings = config(FRAME_RATE, Tracks::MixOnly);
+    let recorder = Recorder::start(Arc::new(fake.into_capturer()), setup(), &settings).unwrap();
+    let path = folder.file("recording.mp4");
+    recorder
+        .start_recording(RecordingStart {
+            file: path.clone(),
+            include_buffered: None,
+        })
+        .unwrap();
+    let second_screen = Target::from(Screen::new(ScreenId(2), "Second screen", SIZE));
+    let without_microphone = AudioSettings {
+        system_gain: Some(0.5),
+        microphone_gain: None,
+        ..settings.audio
+    };
+    recorder
+        .change_capture(
+            CaptureSetup {
+                target: second_screen,
+                ..setup()
+            },
+            without_microphone,
+        )
+        .unwrap();
+
+    let events = events_until_stopped(&recorder);
+
+    let starts = log.starts();
+    assert_eq!(starts.len(), 2, "{starts:?}");
+    assert_eq!(starts[1].target.label(), "Second screen");
+    assert_eq!(starts[1].options.microphone, ngine_capture::Microphone::Off);
+    assert_ne!(starts[0].options.microphone, ngine_capture::Microphone::Off);
+    let finished: Vec<bool> = events
+        .iter()
+        .filter_map(|event| match event {
+            RecorderEvent::RecordingFinished { continues, .. } => Some(*continues),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(finished, [false]);
+    assert!(!events.iter().any(|event| matches!(
+        event,
+        RecorderEvent::CaptureInterrupted(_) | RecorderEvent::CaptureLost(_)
+    )));
+    assert_ne!(File::decode(&path).video.len(), 0);
 }

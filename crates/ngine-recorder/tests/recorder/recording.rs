@@ -300,6 +300,53 @@ fn an_interruption_stays_in_the_file_as_a_still_picture_with_silence() {
 }
 
 #[test]
+fn a_clock_that_jumps_ten_hours_ahead_is_cut_out_instead_of_filled() {
+    let folder = TempFolder::new("clock-jump");
+    let picture = gray(SIZE, 90);
+    let later = Arc::clone(&picture);
+    let ten_hours = 36_000.0;
+    let mut script = merged(vec![
+        Box::new(frames(FRAME_RATE, 0.0, 2.0, move |_| Arc::clone(&picture))),
+        Box::new(sound(Sound::system(), 0.0, 2.0, tone(SYSTEM_TONE))),
+    ]);
+    script.extend(merged(vec![
+        Box::new(sound(
+            Sound::system(),
+            ten_hours - 0.5,
+            ten_hours + 2.0,
+            tone(SYSTEM_TONE),
+        )),
+        Box::new(frames(FRAME_RATE, ten_hours, ten_hours + 2.0, move |_| {
+            Arc::clone(&later)
+        })),
+    ]));
+    let mut rig = Rig::new(&config(FRAME_RATE, Tracks::MixOnly), script);
+    let path = folder.file("recording.mp4");
+    rig.pipeline.start_recording(&start(path.clone())).unwrap();
+    rig.run_to_the_end();
+    let (_, length) = rig.wait_for_finished_file();
+
+    assert!(
+        length.abs_diff(Duration::from_secs(4)) < Duration::from_millis(150),
+        "{length:?}"
+    );
+    let status = rig.pipeline.status();
+    assert!(status.frames_repeated < 10, "{}", status.frames_repeated);
+    let file = File::decode(&path);
+    assert!(
+        (118..=124).contains(&file.video.len()),
+        "{}",
+        file.video.len()
+    );
+    let heard = file.left_channel(0);
+    assert!(
+        heard.len().abs_diff(4 * SAMPLE_RATE) <= 8_192,
+        "{}",
+        heard.len()
+    );
+}
+
+#[test]
 fn a_still_picture_keeps_a_steady_cadence_of_frames() {
     let folder = TempFolder::new("still");
     let picture = gray(SIZE, 200);

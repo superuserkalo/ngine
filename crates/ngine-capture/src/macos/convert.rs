@@ -5,6 +5,8 @@ use crate::error::{CaptureError, Permission};
 use crate::time::Timestamp;
 
 const NANOS_PER_SECOND: i128 = 1_000_000_000;
+const STOPPED_BY_THE_SYSTEM: &str =
+    "macOS stopped the capture. It does this when the startup disk is nearly full.";
 
 pub(super) fn timestamp(time: CMTime) -> Option<Timestamp> {
     if !time.is_numeric() || time.timescale <= 0 {
@@ -45,6 +47,9 @@ pub(super) fn error_from(error: &SCError) -> CaptureError {
         }
         Some(SCStreamErrorCode::FailedToStartMicrophoneCapture) => {
             CaptureError::PermissionDenied(Permission::Microphone)
+        }
+        Some(SCStreamErrorCode::SystemStoppedStream) => {
+            CaptureError::Os(STOPPED_BY_THE_SYSTEM.to_owned())
         }
         _ => error_from_text(&error.to_string()),
     }
@@ -110,6 +115,17 @@ mod tests {
             )),
             CaptureError::PermissionDenied(Permission::Microphone)
         );
+    }
+
+    #[test]
+    fn a_stream_that_the_system_stopped_names_the_full_disk() {
+        let stopped = SCError::from_stream_error_code(SCStreamErrorCode::SystemStoppedStream);
+
+        assert_eq!(
+            error_from(&stopped),
+            CaptureError::Os(STOPPED_BY_THE_SYSTEM.to_owned())
+        );
+        assert!(!was_stopped_by_the_user(&stopped));
     }
 
     #[test]

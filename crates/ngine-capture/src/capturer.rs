@@ -39,6 +39,11 @@ impl Capturer {
         Self { backend }
     }
 
+    /// What captures on this system, for a person to read.
+    pub fn backend_name(&self) -> &'static str {
+        self.backend.name()
+    }
+
     /// Lists screens, windows and apps. `None` where the system does not let
     /// an app list them, and the picker is the only way to choose.
     pub fn lister(&self) -> Option<TargetLister<'_>> {

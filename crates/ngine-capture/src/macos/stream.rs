@@ -1,5 +1,6 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::Sender;
+use std::sync::{Mutex, PoisonError};
 use std::time::Duration;
 
 use screencapturekit::audio_devices::AudioInputDevice;
@@ -14,7 +15,7 @@ use screencapturekit::stream::content_filter::SCContentFilter;
 use screencapturekit::stream::output_type::SCStreamOutputType;
 use screencapturekit::stream::{ErrorHandler, SCStream};
 
-use super::content::{self, Sound};
+use super::content::{self, Resolved, Sound};
 use super::surface::CoreVideoSurface;
 use super::{audio, convert};
 use crate::audio::AudioSource;
@@ -32,7 +33,7 @@ const FRAMES_SCREENCAPTUREKIT_MAY_HOLD: u32 = 8;
 const SOUND_ONLY_PICTURE: Size = Size::new(16, 16);
 const SOUND_ONLY_FRAME_RATE: u32 = 1;
 static RESTART_DELAYS: [Duration; 5] = [
-    Duration::from_millis(100),
+    Duration::ZERO,
     Duration::from_millis(500),
     Duration::from_secs(1),
     Duration::from_secs(2),
@@ -247,9 +248,33 @@ fn begin(stream: &SCStream) -> Result<(), CaptureError> {
         .map_err(|error| convert::error_from(&error))
 }
 
+#[derive(Clone)]
+struct Filters {
+    picture: Resolved,
+    sound_only: Option<SCContentFilter>,
+}
+
+impl Filters {
+    fn resolve(target: &Target, wanted: Option<Sound>) -> Result<Self, CaptureError> {
+        let picture = content::resolve(target)?;
+        let sound_only = match wanted {
+            Some(sound) if sound != picture.sound => Some(match sound {
+                Sound::App(process_id) => content::only_audible(process_id)?,
+                Sound::Everything | Sound::Unknown => content::everything_audible()?,
+            }),
+            Some(_) | None => None,
+        };
+        Ok(Self {
+            picture,
+            sound_only,
+        })
+    }
+}
+
 struct Plan {
     target: Target,
     options: SessionOptions,
+    filters_of_the_last_launch: Mutex<Option<Filters>>,
 }
 
 impl Plan {
@@ -283,15 +308,11 @@ impl Plan {
     }
 
     fn sound_only_stream(
-        wanted: Sound,
+        filter: &SCContentFilter,
         generation: u64,
         sink: &EventSink,
         signals: &Sender<Signal>,
     ) -> Result<SCStream, CaptureError> {
-        let filter = match wanted {
-            Sound::App(process_id) => content::only_audible(process_id)?,
-            Sound::Everything | Sound::Unknown => content::everything_audible()?,
-        };
         let configuration = with_sound(
             SCStreamConfiguration::new()
                 .with_width(SOUND_ONLY_PICTURE.width)
@@ -299,24 +320,43 @@ impl Plan {
                 .with_fps(SOUND_ONLY_FRAME_RATE)
                 .with_shows_cursor(false),
         );
-        let mut stream = open(&filter, &configuration, generation, signals)?;
+        let mut stream = open(filter, &configuration, generation, signals)?;
         listen(&mut stream, AudioSource::System, sink)?;
         Ok(stream)
     }
-}
 
-impl Launch for Plan {
-    type Capture = Streams;
+    fn new(target: &Target, options: &SessionOptions) -> Self {
+        Self {
+            target: target.clone(),
+            options: options.clone(),
+            filters_of_the_last_launch: Mutex::new(None),
+        }
+    }
 
-    fn launch(
+    fn remembered_filters(&self) -> Option<Filters> {
+        self.filters_of_the_last_launch
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+
+    fn remember(&self, filters: Option<Filters>) {
+        *self
+            .filters_of_the_last_launch
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = filters;
+    }
+
+    fn launch_with(
         &self,
+        filters: &Filters,
         generation: u64,
         sink: &EventSink,
         signals: &Sender<Signal>,
     ) -> Result<Streams, CaptureError> {
-        let resolved = content::resolve(&self.target)?;
-        let wanted = wanted_sound(&self.options.system_audio);
-        let picture_carries_sound = wanted == Some(resolved.sound);
+        let resolved = &filters.picture;
+        let picture_carries_sound =
+            wanted_sound(&self.options.system_audio) == Some(resolved.sound);
         let configuration = self.picture_configuration(resolved.size, picture_carries_sound)?;
         let mut picture = open(&resolved.filter, &configuration, generation, signals)?;
         let watch = NativeSizeWatch {
@@ -339,12 +379,11 @@ impl Launch for Plan {
         if self.options.microphone != Microphone::Off {
             listen(&mut picture, AudioSource::Microphone, sink)?;
         }
-        let sound_only = match wanted {
-            Some(wanted) if !picture_carries_sound => {
-                Some(Self::sound_only_stream(wanted, generation, sink, signals)?)
-            }
-            Some(_) | None => None,
-        };
+        let sound_only = filters
+            .sound_only
+            .as_ref()
+            .map(|filter| Self::sound_only_stream(filter, generation, sink, signals))
+            .transpose()?;
         let streams = Streams {
             picture,
             sound_only,
@@ -360,6 +399,28 @@ impl Launch for Plan {
             streams.stop();
             return Err(error);
         }
+        Ok(streams)
+    }
+}
+
+impl Launch for Plan {
+    type Capture = Streams;
+
+    fn launch(
+        &self,
+        generation: u64,
+        sink: &EventSink,
+        signals: &Sender<Signal>,
+    ) -> Result<Streams, CaptureError> {
+        if let Some(filters) = self.remembered_filters()
+            && let Ok(streams) = self.launch_with(&filters, generation, sink, signals)
+        {
+            return Ok(streams);
+        }
+        self.remember(None);
+        let filters = Filters::resolve(&self.target, wanted_sound(&self.options.system_audio))?;
+        let streams = self.launch_with(&filters, generation, sink, signals)?;
+        self.remember(Some(filters));
         Ok(streams)
     }
 }
@@ -383,10 +444,7 @@ pub(super) fn start(
     options: &SessionOptions,
     sink: EventSink,
 ) -> Result<Box<dyn RunningCapture>, CaptureError> {
-    let plan = Plan {
-        target: target.clone(),
-        options: options.clone(),
-    };
+    let plan = Plan::new(target, options);
     let supervised = supervisor::supervise(plan, sink, &RESTART_DELAYS)?;
     Ok(Box::new(MacCapture { supervised }))
 }
@@ -471,6 +529,57 @@ mod tests {
         assert_eq!(delivered_format(BGRA), Some(PixelFormat::Bgra8));
         assert_eq!(delivered_format(NV12_VIDEO_RANGE), Some(PixelFormat::Nv12));
         assert_eq!(delivered_format(u32::from_be_bytes(*b"l10r")), None);
+    }
+
+    #[test]
+    #[ignore = "needs the screen recording permission and a display"]
+    fn a_stream_that_the_system_stopped_delivers_frames_again_within_a_quarter_second() {
+        use std::time::Instant;
+
+        use crate::event::Event;
+        use crate::session;
+
+        let screen = content::list().unwrap().screens.remove(0);
+        let plan = Plan::new(
+            &Target::from(screen),
+            &SessionOptions::new()
+                .with_pixel_format(PixelFormat::Nv12)
+                .with_system_audio(SystemAudio::Everything),
+        );
+        let (sink, pending) = session::channel();
+        let supervised = supervisor::supervise(plan, sink, &RESTART_DELAYS).unwrap();
+        let signals = supervised.signals();
+        let session = pending.run(Box::new(MacCapture { supervised }));
+        let wait_for = |wanted: fn(&Event) -> bool| {
+            let asked = Instant::now();
+            loop {
+                assert!(asked.elapsed() < Duration::from_secs(10), "nothing arrived");
+                match session.recv_timeout(Duration::from_millis(100)) {
+                    Ok(event) if wanted(&event) => return asked.elapsed(),
+                    _ => {}
+                }
+            }
+        };
+        wait_for(|event| matches!(event, Event::Video(_)));
+
+        for generation in 0..3 {
+            std::thread::sleep(Duration::from_secs(1));
+            signals
+                .send(Signal::Stopped {
+                    generation,
+                    error: CaptureError::Os("System stopped the stream".to_owned()),
+                    by_user: false,
+                })
+                .unwrap();
+            let resumed = wait_for(|event| matches!(event, Event::Resumed));
+            let gap = resumed + wait_for(|event| matches!(event, Event::Video(_)));
+            eprintln!(
+                "restart {generation}: resumed after {} ms, frames again after {} ms",
+                resumed.as_millis(),
+                gap.as_millis()
+            );
+            assert!(gap < Duration::from_millis(250), "{gap:?}");
+        }
     }
 
     #[test]

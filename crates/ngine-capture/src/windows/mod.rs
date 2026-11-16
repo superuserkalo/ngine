@@ -40,6 +40,10 @@ mod system {
     }
 
     impl Backend for WindowsBackend {
+        fn name(&self) -> &'static str {
+            "Windows.Graphics.Capture"
+        }
+
         fn target_lister(&self) -> Option<&dyn ListTargets> {
             Some(self)
         }

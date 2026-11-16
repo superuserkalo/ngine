@@ -1,7 +1,14 @@
 use std::env;
 use std::path::{Path, PathBuf};
 
-const LIBRARIES: [&str; 5] = ["avformat", "avcodec", "swscale", "swresample", "avutil"];
+const LIBRARIES: [&str; 6] = [
+    "avfilter",
+    "avformat",
+    "avcodec",
+    "swscale",
+    "swresample",
+    "avutil",
+];
 
 fn main() -> Result<(), String> {
     println!("cargo:rerun-if-env-changed=NGINE_FFMPEG_DIR");
@@ -37,9 +44,9 @@ fn main() -> Result<(), String> {
     bindgen::Builder::default()
         .header("wrapper.h")
         .clang_arg(format!("-I{}", include.display()))
-        .allowlist_function("(av|avcodec|avformat|avio|sws|swr)_.*")
+        .allowlist_function("(av|avcodec|avfilter|avformat|avio|sws|swr)_.*")
         .allowlist_var("(AV|AVERROR|AVFMT|AVIO|AVSEEK|SWS|SWR|FF|LIBAV|NGINE)_.*")
-        .allowlist_type("AVHW(Device|Frames)Context")
+        .allowlist_type("AVHW(Device|Frames)Context|AVDRM(Frame|Device)Descriptor")
         .blocklist_function(".*_v[a-z]*printf|av_log_.*callback|av_vlog|av_vbprintf")
         .default_enum_style(bindgen::EnumVariation::NewType {
             is_bitfield: false,

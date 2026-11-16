@@ -11,6 +11,19 @@ mod os;
 #[path = "platform/windows.rs"]
 mod os;
 
+#[cfg(target_os = "windows")]
+#[path = "platform/windows_console.rs"]
+mod console;
+
+/// Makes what ngine prints appear in the terminal it was started from. On
+/// Windows ngine is a windowed program, which has no console of its own, so
+/// it joins its parent's when there is one. Elsewhere there is nothing to
+/// do. <https://learn.microsoft.com/windows/console/attachconsole>
+pub fn print_to_the_terminal_that_started_ngine() {
+    #[cfg(target_os = "windows")]
+    let _started_without_a_terminal = !console::attach_to_the_parent();
+}
+
 pub use os::{
     FILE_MANAGER, LISTS_CAPTURE_TARGETS, SAMPLE_BUFFER_FOLDER, SAMPLE_OUTPUT_FOLDER, TRASH,
     VIDEOS_FOLDER,

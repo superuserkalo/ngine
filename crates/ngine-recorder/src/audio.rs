@@ -16,7 +16,15 @@ const SILENT_SOURCE_WAIT_FRAMES: u64 = 24_000;
 const LATEST_RETURN_OF_A_SILENT_SOURCE_FRAMES: u64 = 7_200;
 const SMALLEST_STEP_FRAMES: u64 = 480;
 const LARGEST_STEP_FRAMES: u64 = 48_000;
+const LARGEST_STEP: usize = 48_000;
 const LONGEST_RESAMPLED_SILENCE_FRAMES: u64 = 96_000;
+const MOST_FRAMES_ONE_CALL_ENCODES: u64 = 60 * LARGEST_STEP_FRAMES;
+const PATIENCE_WITH_A_SOURCE_AT_A_SAVE_FRAMES: u64 = 4_800;
+
+enum Stretch {
+    Sound(VecDeque<f32>),
+    Silence(u64),
+}
 
 struct Line {
     layout: Option<AudioLayout>,
@@ -24,8 +32,23 @@ struct Line {
     resampler_base: u64,
     produced: u64,
     taken: u64,
-    waiting: VecDeque<f32>,
+    waiting: VecDeque<Stretch>,
 }
+
+#[derive(Clone, Copy)]
+struct Patience {
+    silent_after: u64,
+    latest_return: u64,
+}
+
+const WHILE_RUNNING: Patience = Patience {
+    silent_after: SILENT_SOURCE_WAIT_FRAMES,
+    latest_return: LATEST_RETURN_OF_A_SILENT_SOURCE_FRAMES,
+};
+const AT_A_SAVE: Patience = Patience {
+    silent_after: PATIENCE_WITH_A_SOURCE_AT_A_SAVE_FRAMES,
+    latest_return: 0,
+};
 
 fn frames_from_nanos(nanos: i64) -> u64 {
     let frames = i128::from(nanos.max(0)) * i128::from(AUDIO_FRAMES_PER_SECOND) / NANOS_PER_SECOND;
@@ -34,12 +57,16 @@ fn frames_from_nanos(nanos: i64) -> u64 {
 
 impl Line {
     fn new() -> Self {
+        Self::starting_at(0)
+    }
+
+    fn starting_at(frame: u64) -> Self {
         Self {
             layout: None,
             resampler: None,
-            resampler_base: 0,
-            produced: 0,
-            taken: 0,
+            resampler_base: frame,
+            produced: frame,
+            taken: frame,
             waiting: VecDeque::new(),
         }
     }
@@ -48,8 +75,13 @@ impl Line {
         let frames = (samples.len() / CHANNELS) as u64;
         let already_taken_as_silence = self.taken.saturating_sub(self.produced).min(frames);
         let skipped = usize::try_from(already_taken_as_silence).unwrap_or(usize::MAX);
-        self.waiting
-            .extend(samples.iter().skip(skipped.saturating_mul(CHANNELS)));
+        let kept = samples.iter().skip(skipped.saturating_mul(CHANNELS));
+        if let Some(Stretch::Sound(queue)) = self.waiting.back_mut() {
+            queue.extend(kept);
+        } else {
+            self.waiting
+                .push_back(Stretch::Sound(kept.copied().collect()));
+        }
         self.produced += frames;
     }
 
@@ -63,8 +95,9 @@ impl Line {
 
     fn stay_silent_until(&mut self, frame: u64) {
         let not_yet_taken = frame.saturating_sub(self.produced.max(self.taken));
-        let zeros = usize::try_from(not_yet_taken).unwrap_or(0) * CHANNELS;
-        self.waiting.extend(std::iter::repeat_n(0.0, zeros));
+        if not_yet_taken > 0 {
+            self.waiting.push_back(Stretch::Silence(not_yet_taken));
+        }
         self.produced = self.produced.max(frame);
     }
 
@@ -114,11 +147,30 @@ impl Line {
     }
 
     fn take(&mut self, frames: usize) -> Vec<f32> {
+        let frames = frames.min(LARGEST_STEP);
         let wanted = frames * CHANNELS;
-        let mut samples: Vec<f32> = self
-            .waiting
-            .drain(..wanted.min(self.waiting.len()))
-            .collect();
+        let mut samples: Vec<f32> = Vec::with_capacity(wanted);
+        while samples.len() < wanted {
+            let missing = wanted - samples.len();
+            let emptied = match self.waiting.front_mut() {
+                None => break,
+                Some(Stretch::Sound(queue)) => {
+                    samples.extend(queue.drain(..missing.min(queue.len())));
+                    queue.is_empty()
+                }
+                Some(Stretch::Silence(left)) => {
+                    let silent = usize::try_from(*left)
+                        .unwrap_or(usize::MAX)
+                        .min(missing / CHANNELS);
+                    samples.resize(samples.len() + silent * CHANNELS, 0.0);
+                    *left -= silent as u64;
+                    *left == 0 || silent == 0
+                }
+            };
+            if emptied {
+                self.waiting.pop_front();
+            }
+        }
         samples.resize(wanted, 0.0);
         self.taken += frames as u64;
         samples
@@ -182,12 +234,12 @@ impl AudioStage {
         self.system.iter().chain(self.microphone.iter())
     }
 
-    fn horizon(&self, now_frames: u64) -> u64 {
+    fn horizon(&self, now_frames: u64, patience: Patience) -> u64 {
         self.lines()
             .map(|line| {
-                let delivers_nothing = line.produced + SILENT_SOURCE_WAIT_FRAMES < now_frames;
+                let delivers_nothing = line.produced + patience.silent_after < now_frames;
                 if delivers_nothing {
-                    now_frames.saturating_sub(LATEST_RETURN_OF_A_SILENT_SOURCE_FRAMES)
+                    now_frames.saturating_sub(patience.latest_return)
                 } else {
                     line.produced
                 }
@@ -196,9 +248,30 @@ impl AudioStage {
             .unwrap_or(self.position)
             .min(now_frames)
             .max(self.position)
+            .min(self.position + MOST_FRAMES_ONE_CALL_ENCODES)
     }
 
-    fn step(&mut self, frames: usize) -> Result<Vec<Packet>, RecorderError> {
+    pub(crate) fn retune(&mut self, settings: &AudioSettings) -> Result<(), RecorderError> {
+        self.mixer
+            .set_gain(0, settings.system_gain.unwrap_or(0.0))?;
+        self.mixer
+            .set_gain(1, settings.microphone_gain.unwrap_or(0.0))?;
+        let position = self.position;
+        for (line, wanted) in [
+            (&mut self.system, settings.system_gain),
+            (&mut self.microphone, settings.microphone_gain),
+        ] {
+            match (line.is_some(), wanted) {
+                (false, Some(_)) => *line = Some(Line::starting_at(position)),
+                (true, None) => *line = None,
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
+    fn tracks(&mut self, frames: usize) -> Result<[Vec<f32>; 3], RecorderError> {
+        let frames = frames.min(LARGEST_STEP);
         let silence = || vec![0.0_f32; frames * CHANNELS];
         let system = self
             .system
@@ -212,8 +285,13 @@ impl AudioStage {
         self.mixer.push(1, &microphone)?;
         let mix = self.mixer.mix(frames);
         self.position += frames as u64;
+        Ok([mix, system, microphone])
+    }
+
+    fn step(&mut self, frames: usize) -> Result<Vec<Packet>, RecorderError> {
+        let tracks = self.tracks(frames)?;
         let mut packets = Vec::new();
-        for (track, samples) in [mix, system, microphone].iter().enumerate() {
+        for (track, samples) in tracks.iter().enumerate() {
             if let Some(encoder) = self.encoders.get_mut(track) {
                 packets.extend(on_track(track, encoder.encode(samples)?));
             }
@@ -222,11 +300,26 @@ impl AudioStage {
     }
 
     pub(crate) fn advance(&mut self, now_frames: u64) -> Result<Vec<Packet>, RecorderError> {
+        self.advance_with(now_frames, WHILE_RUNNING)
+    }
+
+    pub(crate) fn advance_for_a_save(
+        &mut self,
+        now_frames: u64,
+    ) -> Result<Vec<Packet>, RecorderError> {
+        self.advance_with(now_frames, AT_A_SAVE)
+    }
+
+    fn advance_with(
+        &mut self,
+        now_frames: u64,
+        patience: Patience,
+    ) -> Result<Vec<Packet>, RecorderError> {
         let mut packets = Vec::new();
         if self.encoders.is_empty() {
             return Ok(packets);
         }
-        let horizon = self.horizon(now_frames);
+        let horizon = self.horizon(now_frames, patience);
         while horizon - self.position >= SMALLEST_STEP_FRAMES {
             let frames = (horizon - self.position).min(LARGEST_STEP_FRAMES);
             packets.extend(self.step(usize::try_from(frames).unwrap_or(0))?);
@@ -242,8 +335,9 @@ impl AudioStage {
         for line in self.system.iter_mut().chain(self.microphone.iter_mut()) {
             line.retire_resampler()?;
         }
-        while self.position < now_frames {
-            let frames = (now_frames - self.position).min(LARGEST_STEP_FRAMES);
+        let end = now_frames.min(self.position + MOST_FRAMES_ONE_CALL_ENCODES);
+        while self.position < end {
+            let frames = (end - self.position).min(LARGEST_STEP_FRAMES);
             packets.extend(self.step(usize::try_from(frames).unwrap_or(0))?);
         }
         for (track, encoder) in self.encoders.iter_mut().enumerate() {
@@ -324,6 +418,108 @@ mod tests {
             "{}",
             stage.position
         );
+    }
+
+    #[test]
+    fn a_timestamp_years_ahead_is_a_gap_that_costs_no_memory() {
+        let mut line = Line::new();
+        line.push(&buffer(AudioSource::System, 480, 0.25), 0)
+            .unwrap();
+        let ten_years_in_nanos = 10 * 365 * 24 * 3_600 * 1_000_000_000_i64;
+
+        line.push(&buffer(AudioSource::System, 480, 0.5), ten_years_in_nanos)
+            .unwrap();
+
+        let gap_in_frames = frames_from_nanos(ten_years_in_nanos);
+        assert!(line.produced >= gap_in_frames);
+        assert!(line.waiting.len() <= 3);
+        let held: usize = line
+            .waiting
+            .iter()
+            .map(|stretch| match stretch {
+                Stretch::Sound(queue) => queue.len(),
+                Stretch::Silence(_) => 0,
+            })
+            .sum();
+        assert!(held <= 4 * 480 * CHANNELS, "{held} samples held");
+        let first = line.take(usize::MAX);
+        assert_eq!(first.len(), LARGEST_STEP * CHANNELS);
+        assert!(
+            first[200..400]
+                .iter()
+                .all(|sample| (sample - 0.25).abs() < 0.01)
+        );
+        assert!(first[4_000..].iter().all(|sample| *sample == 0.0));
+    }
+
+    #[test]
+    fn one_call_encodes_a_minute_at_most_however_far_the_clock_jumped() {
+        let mut stage = AudioStage::open(&settings(Tracks::MixOnly)).unwrap();
+        let a_day = 24 * 3_600 * 48_000_u64;
+
+        stage.advance(a_day).unwrap();
+        assert_eq!(stage.position, MOST_FRAMES_ONE_CALL_ENCODES);
+        stage.finish(a_day).unwrap();
+        assert_eq!(stage.position, 2 * MOST_FRAMES_ONE_CALL_ENCODES);
+    }
+
+    #[test]
+    fn a_save_does_not_wait_for_a_source_that_went_quiet() {
+        let mut stage = AudioStage::open(&settings(Tracks::Three)).unwrap();
+        for index in 0..200_i64 {
+            stage
+                .push(&buffer(AudioSource::System, 480, 0.1), index * 10_000_000)
+                .unwrap();
+        }
+        stage
+            .push(&buffer(AudioSource::Microphone, 80_000, 0.1), 0)
+            .unwrap();
+        stage.advance(96_000).unwrap();
+        let while_running = stage.position;
+        assert!(while_running <= 80_640, "{while_running}");
+
+        stage.advance_for_a_save(96_000).unwrap();
+
+        assert!(96_000 - stage.position <= 2_048, "{}", stage.position);
+    }
+
+    #[test]
+    fn the_volumes_shape_the_mix_and_leave_the_separate_tracks_as_captured() {
+        let quiet_microphone = AudioSettings {
+            system_gain: Some(0.5),
+            microphone_gain: Some(0.25),
+            ..settings(Tracks::Three)
+        };
+        let mut stage = AudioStage::open(&quiet_microphone).unwrap();
+        stage.system.as_mut().unwrap().accept(&[0.2; 960]);
+        stage.microphone.as_mut().unwrap().accept(&[0.8; 960]);
+
+        let [mix, system, microphone] = stage.tracks(480).unwrap();
+
+        assert!(mix.iter().all(|sample| (sample - 0.3).abs() < 1e-6));
+        assert!(system.iter().all(|sample| (sample - 0.2).abs() < 1e-6));
+        assert!(microphone.iter().all(|sample| (sample - 0.8).abs() < 1e-6));
+    }
+
+    #[test]
+    fn new_volumes_and_sources_take_effect_without_new_encoders() {
+        let mut stage = AudioStage::open(&settings(Tracks::Three)).unwrap();
+        stage.system.as_mut().unwrap().accept(&[0.4; 1_920]);
+        stage.tracks(480).unwrap();
+        let without_microphone = AudioSettings {
+            system_gain: Some(0.5),
+            microphone_gain: None,
+            ..settings(Tracks::Three)
+        };
+
+        stage.retune(&without_microphone).unwrap();
+        let [mix, ..] = stage.tracks(480).unwrap();
+
+        assert!(stage.microphone.is_none());
+        assert!(mix.iter().all(|sample| (sample - 0.2).abs() < 1e-6));
+        stage.retune(&settings(Tracks::Three)).unwrap();
+        assert_eq!(stage.microphone.as_ref().unwrap().produced, 960);
+        assert_eq!(stage.stream_infos().count(), 3);
     }
 
     #[test]

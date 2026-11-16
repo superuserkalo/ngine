@@ -6,12 +6,19 @@
 mod decode;
 mod demux;
 mod encode;
+mod hw;
 mod mux;
 mod resample;
 mod scale;
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(any(target_os = "linux", all(test, unix)))]
+mod drm;
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+mod gpu;
+#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
 mod gpu_pending;
+#[cfg(any(target_os = "linux", target_os = "windows", test))]
+mod graph;
 #[cfg(target_os = "macos")]
 mod videotoolbox;
 
@@ -45,7 +52,9 @@ pub use encode::{
     AudioEncoder, AudioEncoderSettings, VideoEncoder, VideoEncoderSettings, VideoInput,
     VideoSource, has_encoder,
 };
-#[cfg(not(target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+pub use gpu::{GpuFramePool, GpuSurface};
+#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
 pub use gpu_pending::{GpuFramePool, GpuSurface};
 pub use mux::{Mp4Layout, Mp4Writer};
 pub use resample::{AudioLayout, Resampler};

@@ -1,5 +1,6 @@
-use std::ffi::c_int;
+use std::ffi::{CString, c_int};
 
+use super::hw::{self, BufferRef, FrameShape, HwFrames};
 use super::scale::{Scaler, tag_sdr_colors};
 use super::{
     ChannelLayout, CodecContext, CodecParameters, CodecRef, Frame, GpuFramePool, GpuSurface,
@@ -56,7 +57,36 @@ enum InputMode {
         encoder_format: sys::AVPixelFormat,
         scaler: Scaler,
     },
+    Upload {
+        format: PixelFormat,
+        scaler: Scaler,
+        surfaces: HwFrames,
+    },
     Gpu,
+}
+
+struct Surfaces<'a> {
+    frames: &'a BufferRef,
+    surface_format: sys::AVPixelFormat,
+    pixel_format: sys::AVPixelFormat,
+    matrix: sys::AVColorSpace,
+}
+
+struct UploadTarget {
+    device: sys::AVHWDeviceType,
+    surface_format: sys::AVPixelFormat,
+}
+
+fn surfaces_it_needs_uploaded(codec: CodecRef) -> Option<UploadTarget> {
+    let supported = codec.pixel_formats();
+    let takes_cpu_pixels = supported.is_empty()
+        || supported
+            .iter()
+            .any(|format| [sys::AV_PIX_FMT_NV12, sys::AV_PIX_FMT_YUV420P].contains(format));
+    (!takes_cpu_pixels && supported.contains(&sys::AV_PIX_FMT_VAAPI)).then_some(UploadTarget {
+        device: sys::AV_HWDEVICE_TYPE_VAAPI,
+        surface_format: sys::AV_PIX_FMT_VAAPI,
+    })
 }
 
 pub struct VideoEncoder {
@@ -86,77 +116,38 @@ impl VideoEncoder {
             )));
         };
         validate_video(settings)?;
-
-        let mut context = CodecContext::new(codec)?;
-        let mode = match source {
-            VideoSource::Cpu(format) => InputMode::Cpu {
-                format,
-                encoder_format: encoder_format(codec)?,
-                scaler: Scaler::new()?,
-            },
+        let target = Target {
+            settings,
+            codec,
+            video_codec,
+        };
+        match source {
             VideoSource::Gpu(pool) => {
                 if pool.width() != settings.width || pool.height() != settings.height {
                     return Err(Error::invalid(
                         "the GPU frame pool and the encoder differ in size",
                     ));
                 }
-                let frames = pool.new_frames_reference()?;
-                let raw = context.unopened_mut();
-                raw.hw_frames_ctx = frames;
-                raw.sw_pix_fmt = pool.format().raw();
-                InputMode::Gpu
+                let surfaces = Surfaces {
+                    frames: pool.frames(),
+                    surface_format: pool.surface_format(),
+                    pixel_format: pool.format().raw(),
+                    matrix: pool.color_matrix(),
+                };
+                target.open(InputMode::Gpu, Some(&surfaces))
             }
-        };
-
-        let peak = i64::try_from(settings.max_bitrate)
-            .map_err(|_| Error::invalid("the bitrate cap is too large"))?;
-        let raw = context.unopened_mut();
-        raw.pix_fmt = match &mode {
-            InputMode::Cpu { encoder_format, .. } => *encoder_format,
-            InputMode::Gpu => GpuFramePool::SURFACE_FORMAT,
-        };
-        raw.width = to_int(settings.width, "the width")?;
-        raw.height = to_int(settings.height, "the height")?;
-        raw.time_base = settings.time_base.into();
-        raw.framerate = settings.frame_rate.into();
-        raw.bit_rate = i64::try_from(settings.bitrate)
-            .map_err(|_| Error::invalid("the bitrate is too large"))?;
-        raw.rc_max_rate = peak;
-        raw.rc_buffer_size = c_int::try_from(peak).unwrap_or(c_int::MAX);
-        raw.gop_size = to_int(settings.keyframe_interval, "the keyframe interval")?;
-        raw.max_b_frames = 0;
-        raw.flags |= sys::AV_CODEC_FLAG_GLOBAL_HEADER.cast_signed();
-        raw.color_primaries = sys::AVCOL_PRI_BT709;
-        raw.color_trc = sys::AVCOL_TRC_BT709;
-        raw.colorspace = sys::AVCOL_SPC_BT709;
-        raw.color_range = sys::AVCOL_RANGE_MPEG;
-        if settings.encoder.ends_with("_videotoolbox") {
-            context.set_private_option(c"realtime", c"1");
+            VideoSource::Cpu(format) => match surfaces_it_needs_uploaded(codec) {
+                None => target.open(
+                    InputMode::Cpu {
+                        format,
+                        encoder_format: encoder_format(codec)?,
+                        scaler: Scaler::new()?,
+                    },
+                    None,
+                ),
+                Some(kind) => target.open_uploading(format, &kind),
+            },
         }
-        context.open(codec, "open the video encoder")?;
-
-        let frame_duration = Rational::new(settings.frame_rate.den, settings.frame_rate.num)
-            .rescale(1, settings.time_base)
-            .unwrap_or(0);
-        let info = StreamInfo {
-            time_base: settings.time_base,
-            parameters: CodecParameters::from_context(&context)?,
-        };
-        Ok(Self {
-            context,
-            packet: RawPacket::new()?,
-            mode,
-            codec: video_codec,
-            name: codec.name(),
-            hardware: codec.is_hardware(),
-            width: settings.width,
-            height: settings.height,
-            frame_duration,
-            last_pts: None,
-            keyframe_requested: false,
-            finished: false,
-            info,
-        })
     }
 
     pub fn codec(&self) -> VideoCodec {
@@ -218,6 +209,30 @@ impl VideoEncoder {
                     scaler.convert(&copied, *encoder_format)?
                 }
             }
+            (
+                InputMode::Upload {
+                    format,
+                    scaler,
+                    surfaces,
+                },
+                VideoInput::Cpu(pixels),
+            ) => {
+                if pixels.format() != *format
+                    || pixels.width() != self.width
+                    || pixels.height() != self.height
+                {
+                    return Err(Error::invalid(
+                        "the picture does not match the format and size the encoder was opened with",
+                    ));
+                }
+                let copied = frame_from_pixels(pixels)?;
+                let planar = if *format == PixelFormat::Nv12 {
+                    copied
+                } else {
+                    scaler.convert(&copied, sys::AV_PIX_FMT_NV12)?
+                };
+                surfaces.upload(&planar)?
+            }
             (InputMode::Gpu, VideoInput::Gpu(surface)) => {
                 if surface.width() != self.width || surface.height() != self.height {
                     return Err(Error::invalid(
@@ -271,6 +286,128 @@ impl VideoEncoder {
             packets.push(packet);
         }
         Ok(packets)
+    }
+}
+
+struct Target<'a> {
+    settings: &'a VideoEncoderSettings,
+    codec: CodecRef,
+    video_codec: VideoCodec,
+}
+
+impl Target<'_> {
+    fn open_uploading(&self, format: PixelFormat, kind: &UploadTarget) -> Result<VideoEncoder> {
+        let shape = FrameShape {
+            surface_format: kind.surface_format,
+            pixel_format: sys::AV_PIX_FMT_NV12,
+            width: self.settings.width,
+            height: self.settings.height,
+        };
+        let nodes = hw::system_render_nodes();
+        let paths: Vec<Option<CString>> = if nodes.is_empty() {
+            vec![None]
+        } else {
+            nodes
+                .iter()
+                .filter_map(|node| node.to_str())
+                .filter_map(|node| CString::new(node).ok())
+                .map(Some)
+                .collect()
+        };
+        let mut last = None;
+        for path in &paths {
+            let opened = hw::open_device(kind.device, path.as_deref(), "open the GPU")
+                .and_then(|device| HwFrames::on(&device, shape, "allocate encoder surfaces"))
+                .and_then(|surfaces| {
+                    let frames = surfaces.reference().share()?;
+                    let described = Surfaces {
+                        frames: &frames,
+                        surface_format: shape.surface_format,
+                        pixel_format: shape.pixel_format,
+                        matrix: sys::AVCOL_SPC_BT709,
+                    };
+                    let mode = InputMode::Upload {
+                        format,
+                        scaler: Scaler::new()?,
+                        surfaces,
+                    };
+                    self.open(mode, Some(&described))
+                });
+            match opened {
+                Ok(encoder) => return Ok(encoder),
+                Err(error) => last = Some(error),
+            }
+        }
+        Err(hw::no_device(&self.settings.encoder, last))
+    }
+
+    fn open(&self, mode: InputMode, surfaces: Option<&Surfaces<'_>>) -> Result<VideoEncoder> {
+        let settings = self.settings;
+        let codec = self.codec;
+        let mut context = CodecContext::new(codec)?;
+        if let Some(surfaces) = surfaces {
+            let frames = surfaces.frames.new_reference()?;
+            let raw = context.unopened_mut();
+            raw.hw_frames_ctx = frames;
+            raw.sw_pix_fmt = surfaces.pixel_format;
+        }
+        let peak = i64::try_from(settings.max_bitrate)
+            .map_err(|_| Error::invalid("the bitrate cap is too large"))?;
+        let raw = context.unopened_mut();
+        raw.pix_fmt = match (&mode, surfaces) {
+            (InputMode::Cpu { encoder_format, .. }, _) => *encoder_format,
+            (_, Some(surfaces)) => surfaces.surface_format,
+            (_, None) => {
+                return Err(Error::invalid(
+                    "an encoder that reads surfaces needs their description",
+                ));
+            }
+        };
+        raw.width = to_int(settings.width, "the width")?;
+        raw.height = to_int(settings.height, "the height")?;
+        raw.time_base = settings.time_base.into();
+        raw.framerate = settings.frame_rate.into();
+        raw.bit_rate = i64::try_from(settings.bitrate)
+            .map_err(|_| Error::invalid("the bitrate is too large"))?;
+        raw.rc_max_rate = peak;
+        raw.rc_buffer_size = c_int::try_from(peak).unwrap_or(c_int::MAX);
+        raw.gop_size = to_int(settings.keyframe_interval, "the keyframe interval")?;
+        raw.max_b_frames = 0;
+        raw.flags |= sys::AV_CODEC_FLAG_GLOBAL_HEADER.cast_signed();
+        raw.color_primaries = sys::AVCOL_PRI_BT709;
+        raw.color_trc = sys::AVCOL_TRC_BT709;
+        raw.colorspace = surfaces.map_or(sys::AVCOL_SPC_BT709, |surfaces| surfaces.matrix);
+        raw.color_range = sys::AVCOL_RANGE_MPEG;
+        if settings.encoder.ends_with("_videotoolbox") {
+            context.set_private_option(c"realtime", c"1");
+        }
+        if settings.encoder.ends_with("_mf") {
+            context.set_private_option(c"hw_encoding", c"1");
+        }
+        context.open(codec, "open the video encoder")?;
+
+        let frame_duration = Rational::new(settings.frame_rate.den, settings.frame_rate.num)
+            .rescale(1, settings.time_base)
+            .unwrap_or(0);
+        let info = StreamInfo {
+            time_base: settings.time_base,
+            parameters: CodecParameters::from_context(&context)?,
+        };
+        Ok(VideoEncoder {
+            context,
+            packet: RawPacket::new()?,
+            mode,
+            codec: self.video_codec,
+            name: codec.name(),
+            hardware: codec.is_hardware(),
+            width: settings.width,
+            height: settings.height,
+            frame_duration,
+            last_pts: None,
+            keyframe_requested: false,
+            finished: false,
+            info,
+        })
     }
 }
 

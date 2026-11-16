@@ -157,6 +157,10 @@ struct FakeBackend {
 }
 
 impl Backend for FakeBackend {
+    fn name(&self) -> &'static str {
+        "a scripted capture for tests"
+    }
+
     fn target_lister(&self) -> Option<&dyn ListTargets> {
         self.lister
             .as_ref()

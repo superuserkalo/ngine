@@ -10,8 +10,11 @@ publish.workspace = true
 build = "build.rs"
 links = "ngine_ffmpeg"
 
-[target.'cfg(target_os = "macos")'.dependencies]
+[dependencies]
 ngine-capture = { path = "../ngine-capture" }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "=0.62.2", features = ["Win32_Graphics_Direct3D11"] }
 
 [build-dependencies]
 bindgen = { version = "=0.73.2", default-features = false, features = ["runtime"] }

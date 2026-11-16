@@ -7,6 +7,7 @@ mod mix;
 mod nal;
 mod probe;
 mod remux;
+mod route;
 mod splice;
 mod types;
 
@@ -18,9 +19,11 @@ pub use ffi::{
 };
 pub use mix::Mixer;
 pub use probe::{
-    EncoderInfo, SOFTWARE_H264, try_video_encoder, working_video_codecs, working_video_encoders,
+    EncoderInfo, ProbedEncoder, SOFTWARE_H264, Trial, probe_video_encoders, try_video_encoder,
+    working_video_codecs, working_video_encoders,
 };
 pub use remux::{ClipRange, ClipSummary, ClipWriter, cut_clip};
+pub use route::{Arrival, Route, SurfaceKind, imports_dma_bufs, routes};
 pub use splice::{conform_to_track, same_parameter_sets, with_parameter_sets};
 pub use types::{
     AudioCodec, AudioFrame, Codec, MAX_DIMENSION, Packet, PixelFormat, PixelView, Plane, PlaneView,

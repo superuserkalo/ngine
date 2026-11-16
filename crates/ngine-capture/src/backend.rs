@@ -18,6 +18,7 @@ pub(crate) trait ListAudioApps {
 }
 
 pub(crate) trait Backend: Send + Sync {
+    fn name(&self) -> &'static str;
     fn target_lister(&self) -> Option<&dyn ListTargets>;
     fn target_picker(&self) -> Option<&dyn PickTarget>;
     fn audio_app_lister(&self) -> Option<&dyn ListAudioApps>;

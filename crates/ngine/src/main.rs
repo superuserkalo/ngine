@@ -1,7 +1,10 @@
+#![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
+
 use std::fmt;
 
 mod app;
 mod cli;
+mod doctor;
 mod editor;
 mod engine;
 mod format;
@@ -34,12 +37,13 @@ fn control(arguments: &[String]) -> Result<(), String> {
 }
 
 fn main() -> Result<(), Failure> {
+    platform::print_to_the_terminal_that_started_ngine();
     let arguments: Vec<String> = std::env::args().skip(1).collect();
     let outcome = match arguments.first().map(String::as_str) {
         None => shell::run(false),
         Some(platform::BACKGROUND_FLAG) => shell::run(true),
         Some("--help" | "-h" | "help") => {
-            println!("{}\n\n{}", cli::USAGE, headless::USAGE);
+            println!("{}\n\n{}\n\n{}", cli::USAGE, headless::USAGE, doctor::USAGE);
             Ok(())
         }
         Some(command @ ("record" | "replay"))
@@ -49,6 +53,7 @@ fn main() -> Result<(), Failure> {
         {
             headless::run(command, &arguments[1..])
         }
+        Some("doctor") => doctor::run(&arguments[1..]),
         Some("--version") => {
             println!("{} {}", app::NAME, app::VERSION);
             Ok(())

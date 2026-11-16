@@ -4,6 +4,7 @@ use std::ptr::{self, NonNull};
 use ngine_capture::CoreVideoSurface;
 
 use super::encode::frame_from_pixels;
+use super::hw::BufferRef;
 use super::{Frame, check, out_of_memory, sys, to_int};
 use crate::error::{Error, Result};
 use crate::types::{PixelFormat, PixelView, check_dimensions};
@@ -20,43 +21,6 @@ unsafe extern "C" {
     fn CVPixelBufferGetHeight(buffer: *const c_void) -> usize;
 }
 
-struct BufferRef(NonNull<sys::AVBufferRef>);
-
-// SAFETY: AVBufferRef reference counts are atomic and the hardware device and
-// frame contexts held through it are documented as usable from any thread.
-unsafe impl Send for BufferRef {}
-
-impl BufferRef {
-    fn from_new(buffer: *mut sys::AVBufferRef, action: &'static str) -> Result<Self> {
-        NonNull::new(buffer)
-            .map(Self)
-            .ok_or_else(|| out_of_memory(action))
-    }
-
-    fn as_ptr(&self) -> *mut sys::AVBufferRef {
-        self.0.as_ptr()
-    }
-
-    fn new_reference(&self) -> Result<*mut sys::AVBufferRef> {
-        // SAFETY: the buffer reference is valid; av_buffer_ref adds a
-        // reference that the caller hands to an FFmpeg structure to own.
-        let reference = unsafe { sys::av_buffer_ref(self.as_ptr()) };
-        if reference.is_null() {
-            Err(out_of_memory("reference a buffer"))
-        } else {
-            Ok(reference)
-        }
-    }
-}
-
-impl Drop for BufferRef {
-    fn drop(&mut self) {
-        let mut buffer = self.0.as_ptr();
-        // SAFETY: this reference came from FFmpeg and is not used again.
-        unsafe { sys::av_buffer_unref(&raw mut buffer) }
-    }
-}
-
 /// A pool of `CVPixelBuffer`s that the `VideoToolbox` encoders read without a
 /// CPU copy.
 pub struct GpuFramePool {
@@ -64,10 +28,11 @@ pub struct GpuFramePool {
     width: u32,
     height: u32,
     format: PixelFormat,
+    matrix: sys::AVColorSpace,
 }
 
 impl GpuFramePool {
-    pub(super) const SURFACE_FORMAT: sys::AVPixelFormat = sys::AV_PIX_FMT_VIDEOTOOLBOX;
+    const SURFACE_FORMAT: sys::AVPixelFormat = sys::AV_PIX_FMT_VIDEOTOOLBOX;
 
     pub fn new(width: u32, height: u32, format: PixelFormat) -> Result<Self> {
         super::init();
@@ -90,8 +55,7 @@ impl GpuFramePool {
         // frames context takes its own reference to it.
         let frames = unsafe { sys::av_hwframe_ctx_alloc(device.as_ptr()) };
         let frames = BufferRef::from_new(frames, "allocate a VideoToolbox frame pool")?;
-        // SAFETY: the reference returned by av_hwframe_ctx_alloc is valid.
-        let data = unsafe { frames.0.as_ref() }.data;
+        let data = frames.data();
         #[expect(
             clippy::cast_ptr_alignment,
             reason = "FFmpeg allocated this buffer as an AVHWFramesContext, so it is aligned for one"
@@ -114,6 +78,7 @@ impl GpuFramePool {
             width,
             height,
             format,
+            matrix: sys::AVCOL_SPC_BT709,
         })
     }
 
@@ -129,8 +94,23 @@ impl GpuFramePool {
         self.format
     }
 
-    pub(super) fn new_frames_reference(&self) -> Result<*mut sys::AVBufferRef> {
-        self.frames.new_reference()
+    pub(super) fn frames(&self) -> &BufferRef {
+        &self.frames
+    }
+
+    pub(super) fn surface_format(&self) -> sys::AVPixelFormat {
+        #[expect(
+            clippy::cast_ptr_alignment,
+            reason = "FFmpeg allocated this buffer as an AVHWFramesContext, so it is aligned for one"
+        )]
+        let context = self.frames.data().cast::<sys::AVHWFramesContext>();
+        // SAFETY: `frames` holds an initialised AVHWFramesContext that no one
+        // mutates after `new` returned.
+        unsafe { &*context }.format
+    }
+
+    pub(super) fn color_matrix(&self) -> sys::AVColorSpace {
+        self.matrix
     }
 
     pub fn upload(&self, pixels: &PixelView<'_>) -> Result<GpuSurface> {

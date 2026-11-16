@@ -1,4 +1,6 @@
 mod clock;
+#[cfg(target_os = "linux")]
+mod descriptor;
 mod lifecycle;
 mod nodes;
 mod pixels;

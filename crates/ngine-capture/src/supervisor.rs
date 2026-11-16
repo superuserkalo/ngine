@@ -183,6 +183,11 @@ pub(crate) struct Supervised<C> {
 }
 
 impl<C: Supervisee> Supervised<C> {
+    #[cfg(all(test, target_os = "macos"))]
+    pub(crate) fn signals(&self) -> Sender<Signal> {
+        self.signals.clone()
+    }
+
     pub(crate) fn stop(&mut self) {
         self.shared.stopping.store(true, Ordering::Release);
         send_unless_the_supervisor_is_gone(&self.signals, Signal::Shutdown);

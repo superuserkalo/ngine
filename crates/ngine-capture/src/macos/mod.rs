@@ -95,6 +95,10 @@ impl PickTarget for MacBackend {
 }
 
 impl Backend for MacBackend {
+    fn name(&self) -> &'static str {
+        "ScreenCaptureKit"
+    }
+
     fn target_lister(&self) -> Option<&dyn ListTargets> {
         Some(self)
     }

@@ -13,6 +13,7 @@ use crate::event::{Events, RecorderEvent};
 use crate::pipeline::{
     Pipeline, RecorderConfig, RecordingStart, ReplaySaveRequest, ReplaySetup, Status,
 };
+use crate::settings::AudioSettings;
 
 const QUEUED_COMMANDS: usize = 64;
 const LONGEST_WAIT_FOR_AN_EVENT: Duration = Duration::from_millis(8);
@@ -40,6 +41,7 @@ enum Command {
     AddMarker,
     SetReplay(Option<ReplaySetup>),
     SaveReplay(ReplaySaveRequest),
+    ChangeCapture(CaptureSetup, AudioSettings),
     Stop,
 }
 
@@ -55,22 +57,28 @@ pub struct Recorder {
     thread: Option<JoinHandle<()>>,
 }
 
-fn session_options(setup: &CaptureSetup, config: &RecorderConfig) -> SessionOptions {
-    let system_audio = match (config.audio.system_gain, setup.app_sound_only) {
+fn session_options(
+    setup: &CaptureSetup,
+    audio: &AudioSettings,
+    frame_rate: u32,
+    gpu_surfaces: bool,
+) -> SessionOptions {
+    let system_audio = match (audio.system_gain, setup.app_sound_only) {
         (None, _) => SystemAudio::Off,
         (Some(_), true) => SystemAudio::of(&setup.target),
         (Some(_), false) => SystemAudio::Everything,
     };
-    let microphone = match config.audio.microphone_gain {
+    let microphone = match audio.microphone_gain {
         Some(_) => Microphone::SystemDefault,
         None => Microphone::Off,
     };
     SessionOptions::new()
         .with_cursor(setup.show_cursor)
-        .with_frame_rate(config.video.frame_rate)
+        .with_frame_rate(frame_rate)
         .with_pixel_format(PixelFormat::Nv12)
         .with_system_audio(system_audio)
         .with_microphone(microphone)
+        .with_gpu_surfaces(gpu_surfaces)
 }
 
 impl Recorder {
@@ -86,7 +94,14 @@ impl Recorder {
         let (commands, inbox) = mpsc::sync_channel(QUEUED_COMMANDS);
         let status = Arc::new(Mutex::new(Status::default()));
         let worker = Worker {
-            options: session_options(&setup, config),
+            options: session_options(
+                &setup,
+                &config.audio,
+                config.video.frame_rate,
+                pipeline.reads_dma_bufs(),
+            ),
+            frame_rate: config.video.frame_rate,
+            replace_the_session: false,
             target: setup.target,
             capturer,
             pipeline,
@@ -134,6 +149,19 @@ impl Recorder {
 
     pub fn save_replay(&self, request: ReplaySaveRequest) -> Result<(), RecorderError> {
         self.send(Command::SaveReplay(request))
+    }
+
+    /// Captures something else, or with other volumes and sources, without
+    /// a new recorder: the replay buffer keeps what it holds and a running
+    /// recording goes on. `audio` must keep the number of tracks and their
+    /// codec. A change that does not is ignored, so compare the settings
+    /// first and start a new recorder for those.
+    pub fn change_capture(
+        &self,
+        setup: CaptureSetup,
+        audio: AudioSettings,
+    ) -> Result<(), RecorderError> {
+        self.send(Command::ChangeCapture(setup, audio))
     }
 
     pub fn status(&self) -> Status {
@@ -184,6 +212,8 @@ struct Worker {
     capturer: Arc<Capturer>,
     target: Target,
     options: SessionOptions,
+    frame_rate: u32,
+    replace_the_session: bool,
     pipeline: Pipeline,
     inbox: Receiver<Command>,
     events: Events,
@@ -193,6 +223,7 @@ struct Worker {
 
 enum SessionEnd {
     Stop,
+    Replace,
     Broke(Option<ngine_capture::CaptureError>),
     Failed(RecorderError),
 }
@@ -236,6 +267,14 @@ impl Worker {
                 let outcome = self.pipeline.save_replay(request);
                 self.report(outcome, |error| RecorderEvent::ReplaySaveFailed { error });
             }
+            Command::ChangeCapture(setup, audio) => {
+                if self.pipeline.set_audio(audio).is_ok() {
+                    self.options =
+                        session_options(&setup, &audio, self.frame_rate, self.options.gpu_surfaces);
+                    self.target = setup.target;
+                    self.replace_the_session = true;
+                }
+            }
             Command::Stop => self.stopping = true,
         }
     }
@@ -262,6 +301,14 @@ impl Worker {
             self.obey_waiting_commands();
             if self.stopping {
                 session.stop();
+            }
+            if self.pipeline.wants_cpu_frames() && self.options.gpu_surfaces {
+                self.options.gpu_surfaces = false;
+                self.replace_the_session = true;
+            }
+            if self.replace_the_session && !self.stopping {
+                self.replace_the_session = false;
+                return SessionEnd::Replace;
             }
             let handled = match session.recv_timeout(LONGEST_WAIT_FOR_AN_EVENT) {
                 Ok(Event::Ended(EndReason::Failed(error))) => {
@@ -317,6 +364,24 @@ impl Worker {
         while let Some(running) = session.take() {
             match self.run_session(&running) {
                 SessionEnd::Stop => {}
+                SessionEnd::Replace => {
+                    drop(running);
+                    session = match self.capturer.start(&self.target, &self.options) {
+                        Ok(replacement) => {
+                            self.pipeline.capture_restarted();
+                            Some(replacement)
+                        }
+                        Err(error) => {
+                            self.events
+                                .send(RecorderEvent::CaptureInterrupted(error.clone()));
+                            let restarted = self.restart();
+                            if restarted.is_none() && !self.stopping {
+                                self.events.send(RecorderEvent::CaptureLost(Some(error)));
+                            }
+                            restarted
+                        }
+                    };
+                }
                 SessionEnd::Failed(error) => {
                     running.stop();
                     self.pipeline.finish();

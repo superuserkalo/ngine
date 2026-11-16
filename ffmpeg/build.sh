@@ -231,6 +231,7 @@ platform_flags() {
         --extra-ldflags="-L$prefix/lib"
         "--extra-ldsoflags=-Wl,-rpath,'\\\$\\\$\\\$\\\$ORIGIN'"
         --enable-vaapi
+        --enable-libdrm
         --enable-vulkan
         --enable-ffnvcodec
         --enable-nvenc

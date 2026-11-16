@@ -1955,6 +1955,7 @@ version = "0.0.0"
 dependencies = [
  "bindgen 0.73.2",
  "ngine-capture",
+ "windows",
 ]
 
 [[package]]

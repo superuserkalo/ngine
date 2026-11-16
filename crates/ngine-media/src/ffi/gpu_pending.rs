@@ -1,3 +1,4 @@
+use super::hw::BufferRef;
 use super::{Frame, sys};
 use crate::error::Result;
 use crate::types::PixelFormat;
@@ -9,7 +10,13 @@ pub enum GpuFramePool {}
 pub enum GpuSurface {}
 
 impl GpuFramePool {
-    pub(super) const SURFACE_FORMAT: sys::AVPixelFormat = sys::AV_PIX_FMT_NONE;
+    pub(super) fn surface_format(&self) -> sys::AVPixelFormat {
+        match *self {}
+    }
+
+    pub(super) fn color_matrix(&self) -> sys::AVColorSpace {
+        match *self {}
+    }
 
     pub fn width(&self) -> u32 {
         match *self {}
@@ -23,7 +30,7 @@ impl GpuFramePool {
         match *self {}
     }
 
-    pub(super) fn new_frames_reference(&self) -> Result<*mut sys::AVBufferRef> {
+    pub(super) fn frames(&self) -> &BufferRef {
         match *self {}
     }
 }

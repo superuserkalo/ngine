@@ -73,8 +73,15 @@ impl Mixer {
         self.position
     }
 
-    /// Returns the next `frames` frames of the mix, clamped to full scale.
+    /// The most frames one call to [`Mixer::mix`] returns: ten seconds.
+    pub const MOST_FRAMES_AT_ONCE: usize = 480_000;
+
+    /// Returns the next `frames` frames of the mix, clamped to full scale,
+    /// and never more than [`Mixer::MOST_FRAMES_AT_ONCE`] of them, so a
+    /// clock that jumped cannot ask for a buffer of any size. Call it again
+    /// for the rest.
     pub fn mix(&mut self, frames: usize) -> Vec<f32> {
+        let frames = frames.min(Self::MOST_FRAMES_AT_ONCE);
         let mut output = vec![0.0_f32; frames * CHANNELS];
         for source in &mut self.sources {
             let queued = source.queue.len() / CHANNELS;
@@ -128,6 +135,19 @@ mod tests {
         let output = mixer.mix(2);
         assert!(output.iter().all(|sample| (sample - 0.3).abs() < 1e-6));
         assert_eq!(mixer.position(), 6);
+    }
+
+    #[test]
+    fn one_call_mixes_ten_seconds_at_most_however_much_is_asked_for() {
+        let mut mixer = Mixer::new(1);
+        mixer.push(0, &[0.5; 8]).unwrap();
+
+        let output = mixer.mix(usize::MAX);
+
+        assert_eq!(output.len(), Mixer::MOST_FRAMES_AT_ONCE * 2);
+        assert_eq!(mixer.position(), Mixer::MOST_FRAMES_AT_ONCE as u64);
+        assert_eq!(output[..8], [0.5; 8]);
+        assert!(output[8..].iter().all(|sample| *sample == 0.0));
     }
 
     #[test]

@@ -19,6 +19,7 @@ pub(super) enum Sound {
     Unknown,
 }
 
+#[derive(Clone)]
 pub(super) struct Resolved {
     pub(super) filter: SCContentFilter,
     pub(super) size: Size,

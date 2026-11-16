@@ -611,6 +611,7 @@ impl Launch for X11Launch {
             microphone: pw::microphone_choice(&self.options.microphone),
             frame_rate: self.options.frame_rate,
             pixel_format: self.options.pixel_format,
+            gpu_surfaces: false,
             reporter: None,
         };
         let sound = if request.wants_sound() {
@@ -670,6 +671,10 @@ fn area_of(target: &Target) -> Result<Area, CaptureError> {
 }
 
 impl Backend for X11Backend {
+    fn name(&self) -> &'static str {
+        "X11 shared memory"
+    }
+
     fn target_lister(&self) -> Option<&dyn ListTargets> {
         Some(self)
     }

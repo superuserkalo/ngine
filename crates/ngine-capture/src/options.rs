@@ -8,7 +8,6 @@ pub enum SystemAudio {
     Off,
     /// Everything the computer plays, apart from this process.
     Everything,
-    /// One app only.
     App(AudioApp),
 }
 
@@ -45,6 +44,13 @@ pub struct SessionOptions {
     pub pixel_format: PixelFormat,
     pub system_audio: SystemAudio,
     pub microphone: Microphone,
+    /// Ask for frames that stay on the GPU even where they then cannot be
+    /// copied to ordinary memory. Only Linux has such frames: with this set,
+    /// a compositor that can share a DMA-BUF delivers
+    /// [`Surface::DmaBuf`](crate::Surface), and
+    /// [`VideoFrame::to_cpu`](crate::VideoFrame::to_cpu) fails for it. Set
+    /// it only when the encoder imports DMA-BUFs.
+    pub gpu_surfaces: bool,
 }
 
 impl Default for SessionOptions {
@@ -55,6 +61,7 @@ impl Default for SessionOptions {
             pixel_format: PixelFormat::Bgra8,
             system_audio: SystemAudio::Off,
             microphone: Microphone::Off,
+            gpu_surfaces: false,
         }
     }
 }
@@ -91,6 +98,12 @@ impl SessionOptions {
     #[must_use]
     pub fn with_microphone(mut self, microphone: Microphone) -> Self {
         self.microphone = microphone;
+        self
+    }
+
+    #[must_use]
+    pub fn with_gpu_surfaces(mut self, gpu_surfaces: bool) -> Self {
+        self.gpu_surfaces = gpu_surfaces;
         self
     }
 }

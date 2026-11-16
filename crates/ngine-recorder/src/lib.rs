@@ -24,7 +24,8 @@ pub use export::{Cut, ExportControl, ExportRequest, ExportSummary, export_clip};
 pub use library::{LibraryItem, MediaInfo, RenameError, probe, rename, scan};
 pub use markers::{BOX_UUID, journal_path, read_markers};
 pub use ngine_media::{
-    AudioCodec, EncoderInfo, VideoCodec, working_video_codecs, working_video_encoders,
+    AudioCodec, EncoderInfo, Error as MediaError, ProbedEncoder, SurfaceKind, Trial, VideoCodec,
+    probe_video_encoders, working_video_codecs, working_video_encoders,
 };
 pub use pipeline::{
     Pipeline, RecorderConfig, RecordingStart, RecordingStatus, ReplaySaveRequest, ReplaySetup,

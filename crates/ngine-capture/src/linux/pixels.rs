@@ -21,6 +21,27 @@ impl Layout {
             Self::Nv12 => PixelFormat::Nv12,
         }
     }
+
+    pub(super) fn drm_fourcc(self) -> u32 {
+        u32::from_le_bytes(match self {
+            Self::Bgrx => *b"XR24",
+            Self::Bgra => *b"AR24",
+            Self::Rgbx => *b"XB24",
+            Self::Rgba => *b"AB24",
+            Self::Nv12 => *b"NV12",
+        })
+    }
+
+    fn is_one_plane(self) -> bool {
+        self != Self::Nv12
+    }
+}
+
+pub(super) fn preference_in_one_plane(wanted: PixelFormat) -> Vec<Layout> {
+    preference(wanted)
+        .into_iter()
+        .filter(|layout| layout.is_one_plane())
+        .collect()
 }
 
 pub(super) fn preference(wanted: PixelFormat) -> Vec<Layout> {
@@ -158,6 +179,23 @@ mod tests {
         red_mask: 0x00ff_0000,
         blue_mask: 0x0000_00ff,
     };
+
+    #[test]
+    fn a_dma_buf_is_asked_for_in_one_plane_and_named_by_its_drm_code() {
+        assert_eq!(
+            preference_in_one_plane(PixelFormat::Nv12),
+            [Layout::Bgrx, Layout::Bgra, Layout::Rgbx, Layout::Rgba]
+        );
+        assert_eq!(
+            preference_in_one_plane(PixelFormat::Rgba8),
+            [Layout::Rgbx, Layout::Rgba, Layout::Bgrx, Layout::Bgra]
+        );
+        assert_eq!(Layout::Bgrx.drm_fourcc(), 0x3432_5258);
+        assert_eq!(Layout::Bgra.drm_fourcc(), 0x3432_5241);
+        assert_eq!(Layout::Rgbx.drm_fourcc(), 0x3432_4258);
+        assert_eq!(Layout::Rgba.drm_fourcc(), 0x3432_4241);
+        assert_eq!(Layout::Nv12.drm_fourcc(), 0x3231_564e);
+    }
 
     #[test]
     fn the_asked_format_is_offered_first_and_the_others_stay_as_fallbacks() {

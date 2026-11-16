@@ -15,7 +15,9 @@ pub enum Quality {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Tracks {
-    /// The mix, then system sound, then the microphone.
+    /// The mix, then system sound, then the microphone. The two separate
+    /// tracks are written as captured, whatever the volumes are, so the clip
+    /// editor can rebalance them; the volumes shape the mix only.
     Three,
     MixOnly,
 }

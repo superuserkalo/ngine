@@ -270,7 +270,8 @@ impl RealEngine {
             .session
             .as_ref()
             .is_some_and(|session| session.key == key && !session.ended);
-        if !reusable {
+        let changed_in_place = !reusable && self.change_capture_in_place(target, &key);
+        if !reusable && !changed_in_place {
             self.stop_session();
             let capture = self
                 .known
@@ -304,6 +305,34 @@ impl RealEngine {
         self.session
             .as_mut()
             .ok_or(Refusal::Blocked(Problem::CaptureLost))
+    }
+
+    fn change_capture_in_place(&mut self, target: &Target, key: &SessionKey) -> bool {
+        let Some(capture) = self.known.get(&target.id).cloned() else {
+            return false;
+        };
+        let Some(session) = self.session.as_mut() else {
+            return false;
+        };
+        let audio = audio_settings(key.audio);
+        let keeps_its_streams = !session.ended
+            && !session.recording
+            && session.key.video == key.video
+            && audio_settings(session.key.audio).track_count() == audio.track_count();
+        if !keeps_its_streams {
+            return false;
+        }
+        let setup = CaptureSetup {
+            target: capture,
+            show_cursor: true,
+            app_sound_only: key.audio.app_only,
+        };
+        if session.recorder.change_capture(setup, audio).is_err() {
+            return false;
+        }
+        session.key = key.clone();
+        session.target = target.clone();
+        true
     }
 
     fn stop_session(&mut self) {

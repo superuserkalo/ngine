@@ -25,6 +25,9 @@ pub enum RecorderError {
     NotRecording,
     ReplayOff,
     NothingHeld,
+    /// The new settings change what the tracks hold, which a running
+    /// recorder cannot do. Start a new recorder for them.
+    NeedsANewRecorder,
     /// Too many commands or saves are waiting. Nothing was started.
     Busy,
     /// The recorder's thread has ended.
@@ -80,6 +83,8 @@ impl fmt::Display for RecorderError {
                 "could not {action} at {}: {source}",
                 path.display()
             ),
+            Self::NeedsANewRecorder => formatter
+                .write_str("the new settings change the tracks, which needs a new recorder"),
             Self::AlreadyRecording => formatter.write_str("a recording is already running"),
             Self::NotRecording => formatter.write_str("no recording is running"),
             Self::ReplayOff => formatter.write_str("instant replay is off"),

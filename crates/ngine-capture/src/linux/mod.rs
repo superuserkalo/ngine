@@ -1,69 +1,54 @@
-use std::fmt;
-use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
-use std::sync::Arc;
+mod clock;
+mod lifecycle;
+mod nodes;
+mod pixels;
+mod portal_plan;
+mod samples;
+mod session_kind;
 
-use crate::error::CaptureError;
-use crate::frame::CpuFrame;
+#[cfg(target_os = "linux")]
+mod monotonic;
+#[cfg(target_os = "linux")]
+mod portal;
+#[cfg(target_os = "linux")]
+mod pw;
+#[cfg(target_os = "linux")]
+mod surface;
+#[cfg(target_os = "linux")]
+mod wayland;
+#[cfg(target_os = "linux")]
+mod x11;
 
-type CpuCopy = dyn Fn() -> Result<CpuFrame, CaptureError> + Send + Sync;
+#[cfg(target_os = "linux")]
+pub use self::surface::{DmaBufPlane, DmaBufSurface};
 
-#[derive(Clone, Debug)]
-pub struct DmaBufPlane {
-    fd: Arc<OwnedFd>,
-    offset: u32,
-    stride: u32,
-}
+#[cfg(target_os = "linux")]
+static RESTART_DELAYS: [std::time::Duration; 4] = [
+    std::time::Duration::from_millis(100),
+    std::time::Duration::from_millis(500),
+    std::time::Duration::from_secs(1),
+    std::time::Duration::from_secs(3),
+];
 
-impl DmaBufPlane {
-    /// The descriptor stays open while this plane or a clone of it is alive.
-    /// Duplicate it to keep it for longer.
-    pub fn fd(&self) -> BorrowedFd<'_> {
-        self.fd.as_fd()
-    }
+#[cfg(target_os = "linux")]
+pub(crate) fn system_backend()
+-> Result<Box<dyn crate::backend::Backend>, crate::error::CaptureError> {
+    use self::session_kind::{SessionEnvironment, SessionKind};
 
-    pub fn offset(&self) -> u32 {
-        self.offset
-    }
-
-    pub fn stride(&self) -> u32 {
-        self.stride
-    }
-}
-
-#[derive(Clone)]
-pub struct DmaBufSurface {
-    planes: Vec<DmaBufPlane>,
-    drm_format: u32,
-    modifier: u64,
-    cpu_copy: Arc<CpuCopy>,
-}
-
-impl DmaBufSurface {
-    pub fn planes(&self) -> &[DmaBufPlane] {
-        &self.planes
-    }
-
-    /// The DRM four-character code of the pixel layout.
-    pub fn drm_format(&self) -> u32 {
-        self.drm_format
-    }
-
-    pub fn modifier(&self) -> u64 {
-        self.modifier
-    }
-
-    pub(crate) fn to_cpu(&self) -> Result<CpuFrame, CaptureError> {
-        (self.cpu_copy)()
-    }
-}
-
-impl fmt::Debug for DmaBufSurface {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("DmaBufSurface")
-            .field("planes", &self.planes)
-            .field("drm_format", &self.drm_format)
-            .field("modifier", &self.modifier)
-            .finish_non_exhaustive()
+    let variable = |name: &str| std::env::var(name).ok();
+    let session_type = variable("XDG_SESSION_TYPE");
+    let wayland_display = variable("WAYLAND_DISPLAY");
+    let x11_display = variable("DISPLAY");
+    let environment = SessionEnvironment {
+        session_type: session_type.as_deref(),
+        wayland_display: wayland_display.as_deref(),
+        x11_display: x11_display.as_deref(),
+    };
+    match session_kind::detect(&environment) {
+        Some(SessionKind::Wayland) => Ok(Box::new(wayland::WaylandBackend)),
+        Some(SessionKind::X11) => Ok(Box::new(x11::X11Backend)),
+        None => Err(crate::error::CaptureError::Unavailable(
+            "no Wayland or X11 session: WAYLAND_DISPLAY and DISPLAY are both unset".to_owned(),
+        )),
     }
 }

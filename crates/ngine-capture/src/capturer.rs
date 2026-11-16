@@ -23,7 +23,11 @@ impl Capturer {
         {
             Ok(Self::with_backend(Box::new(crate::windows::WindowsBackend)))
         }
-        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+        #[cfg(target_os = "linux")]
+        {
+            crate::linux::system_backend().map(Self::with_backend)
+        }
+        #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
         {
             Err(CaptureError::Unsupported(
                 "ngine-capture has no backend for this operating system yet".to_owned(),

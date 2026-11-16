@@ -1,7 +1,7 @@
 use std::cell::Cell;
 use std::fmt;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-#[cfg(any(target_os = "macos", target_os = "windows", test))]
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux", test))]
 use std::sync::mpsc::TrySendError;
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -12,9 +12,9 @@ use crate::event::{EndReason, Event};
 use crate::time::Timestamp;
 
 const QUEUED_EVENTS: usize = 512;
-#[cfg(any(target_os = "macos", target_os = "windows", test))]
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux", test))]
 const QUEUED_VIDEO_FRAMES: usize = 4;
-#[cfg(any(target_os = "macos", target_os = "windows", test))]
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux", test))]
 const FULL_QUEUE_RETRY: Duration = Duration::from_millis(2);
 const STOP_POLL: Duration = Duration::from_millis(50);
 
@@ -68,7 +68,7 @@ impl EventSink {
     }
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows", test))]
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux", test))]
 impl EventSink {
     fn try_send(&self, event: Event) -> Result<(), TrySendError<Event>> {
         self.send_with(event, SyncSender::try_send)

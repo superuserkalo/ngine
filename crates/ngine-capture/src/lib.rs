@@ -16,13 +16,13 @@ mod error;
 mod event;
 pub mod fake;
 mod frame;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", test))]
 mod linux;
 #[cfg(target_os = "macos")]
 mod macos;
 mod options;
 mod session;
-#[cfg(any(target_os = "macos", target_os = "windows"))]
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 mod supervisor;
 mod target;
 mod time;

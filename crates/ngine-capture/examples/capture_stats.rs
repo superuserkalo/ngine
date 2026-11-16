@@ -1,11 +1,15 @@
 use std::collections::BTreeSet;
 use std::error::Error;
+use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use ngine_capture::{
-    AudioBuffer, AudioSource, Capturer, EndReason, Event, Microphone, PixelFormat, RecvError,
-    Session, SessionOptions, SystemAudio, Target, Targets, Timestamp, VideoFrame,
+    AudioBuffer, AudioSource, Capturer, EndReason, Event, Microphone, PickerOptions, PixelFormat,
+    RecvError, RestoreToken, Session, SessionOptions, SystemAudio, Target, Targets, Timestamp,
+    VideoFrame,
 };
+
+const RESTORE_TOKEN_VARIABLE: &str = "NGINE_RESTORE_TOKEN";
 
 const USAGE: &str = "usage: capture_stats [screen|window|app] [NUMBER] \
 [--seconds N] [--no-cursor] [--no-microphone] [--no-sound] [--all-sound] [--nv12] [--list]";
@@ -293,6 +297,26 @@ fn watch(session: &Session, duration: Duration) -> Stats {
     stats
 }
 
+fn picked_target(capturer: &Capturer) -> Result<Target, Box<dyn Error>> {
+    let system_picker = capturer
+        .picker()
+        .ok_or("this system has neither a list of capture targets nor a picker")?;
+    let mut options = PickerOptions::new();
+    if let Ok(token) = std::env::var(RESTORE_TOKEN_VARIABLE) {
+        options = options.with_restore_token(RestoreToken::new(token));
+    }
+    let (chosen, choice) = mpsc::channel();
+    system_picker.pick(options, move |outcome| drop(chosen.send(outcome)));
+    let picked = choice.recv()??.ok_or("the picker was cancelled")?;
+    if let Some(token) = &picked.restore_token {
+        println!(
+            "restore token: {} (set {RESTORE_TOKEN_VARIABLE} to it to skip the picker next time)",
+            token.as_str()
+        );
+    }
+    Ok(picked.target)
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
     let request = Request::parse(std::env::args().skip(1))?;
     let capturer = Capturer::system()?;
@@ -313,16 +337,24 @@ fn main() -> Result<(), Box<dyn Error>> {
         };
         println!("  {}{default}", microphone.name);
     }
-    let lister = capturer
-        .lister()
-        .ok_or("this system does not let an app list capture targets")?;
-    let targets = lister.targets()?;
-    print_targets(&targets);
-    if request.list_only {
-        return Ok(());
+    if let Some(apps) = capturer.audio_apps() {
+        println!("apps playing sound:");
+        for app in apps.playing()? {
+            println!("  {} (id {})", app.name, app.id);
+        }
     }
-
-    let target = request.target(&targets)?;
+    let target = match capturer.lister() {
+        Some(lister) => {
+            let targets = lister.targets()?;
+            print_targets(&targets);
+            if request.list_only {
+                return Ok(());
+            }
+            request.target(&targets)?
+        }
+        None if request.list_only => return Ok(()),
+        None => picked_target(&capturer)?,
+    };
     let options = request.options(&target);
     println!();
     println!(

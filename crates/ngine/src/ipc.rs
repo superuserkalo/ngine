@@ -1,6 +1,8 @@
 use std::fmt;
 use std::io::{self, BufRead, BufReader, Write};
-use std::thread;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread::{self, JoinHandle};
 
 use crate::cli::{self, Command, Reply};
 
@@ -65,13 +67,26 @@ fn answer(stream: transport::Stream, handler: &impl Fn(Command) -> Reply) -> io:
     stream.flush()
 }
 
-/// Keeps the address claimed for as long as it lives.
+/// Keeps the address claimed for as long as it lives. Dropping it stops the
+/// listening thread, so every handle to the address is closed before the
+/// drop returns.
 pub struct Server {
     address: Address,
+    stopping: Arc<AtomicBool>,
+    thread: Option<JoinHandle<()>>,
 }
 
 impl Drop for Server {
     fn drop(&mut self) {
+        self.stopping.store(true, Ordering::SeqCst);
+        let woken = transport::connect(&self.address);
+        if woken.is_ok()
+            && let Some(thread) = self.thread.take()
+            && thread.join().is_err()
+        {
+            eprintln!("ngine: the command listener ended badly");
+        }
+        drop(woken);
         transport::release(&self.address);
     }
 }
@@ -83,19 +98,25 @@ pub fn serve(
     handler: impl Fn(Command) -> Reply + Send + 'static,
 ) -> io::Result<Server> {
     let listener = transport::listen(address)?;
-    thread::Builder::new()
+    let stopping = Arc::new(AtomicBool::new(false));
+    let stop = Arc::clone(&stopping);
+    let thread = thread::Builder::new()
         .name("ngine-commands".into())
         .spawn(move || {
             loop {
-                let served =
-                    transport::accept(&listener).and_then(|stream| answer(stream, &handler));
-                if let Err(error) = served {
+                let accepted = transport::accept(&listener);
+                if stop.load(Ordering::SeqCst) {
+                    break;
+                }
+                if let Err(error) = accepted.and_then(|stream| answer(stream, &handler)) {
                     eprintln!("ngine: a command could not be answered: {error}");
                 }
             }
         })?;
     Ok(Server {
         address: address.clone(),
+        stopping,
+        thread: Some(thread),
     })
 }
 

@@ -2,6 +2,8 @@ use std::fs::{self, OpenOptions};
 use std::hash::{BuildHasher, Hasher, RandomState};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use std::thread;
+use std::time::Duration;
 
 use interprocess::local_socket::traits::{Listener as _, Stream as _};
 use interprocess::local_socket::{GenericNamespaced, ListenerOptions, Name, ToNsName};
@@ -15,6 +17,8 @@ pub type Listener = interprocess::local_socket::Listener;
 const OWNER_ONLY: &str = "D:P(A;;GA;;;OW)";
 const SECRET_FILE: &str = "command-pipe";
 const SECRET_LENGTH: usize = 32;
+const CREATE_ATTEMPTS: u32 = 20;
+const CREATE_RETRY_WAIT: Duration = Duration::from_millis(25);
 
 #[derive(Clone, Debug)]
 pub enum Address {
@@ -127,14 +131,24 @@ pub fn listen(address: &Address) -> io::Result<Listener> {
             "another ngine already answers commands",
         ));
     }
-    ListenerOptions::new()
-        .name(pipe_name(address, true)?)
-        .security_descriptor(owner_only()?)
-        .create_sync()
-        .map_err(|error| match error.kind() {
-            io::ErrorKind::PermissionDenied => io::Error::new(io::ErrorKind::AddrInUse, error),
-            _ => error,
-        })
+    let name = pipe_name(address, true)?;
+    let mut attempts_left = CREATE_ATTEMPTS;
+    loop {
+        let created = ListenerOptions::new()
+            .name(name.clone())
+            .security_descriptor(owner_only()?)
+            .create_sync();
+        attempts_left -= 1;
+        match created {
+            Err(error) if error.kind() == io::ErrorKind::PermissionDenied => {
+                if attempts_left == 0 {
+                    return Err(io::Error::new(io::ErrorKind::AddrInUse, error));
+                }
+                thread::sleep(CREATE_RETRY_WAIT);
+            }
+            other => return other,
+        }
+    }
 }
 
 pub fn accept(listener: &Listener) -> io::Result<Stream> {

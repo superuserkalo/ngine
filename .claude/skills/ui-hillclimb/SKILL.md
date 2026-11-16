@@ -26,6 +26,8 @@ Climb from the window as it is. Its structure is the owner's accepted starting p
 
 **The right control.** A small fixed set of choices is a segmented control or a menu. A value people set to their own number (a length, a bitrate, a folder) gets a field, with presets only when a few values cover nearly everyone. A switch only for on/off that takes effect at once. Keybinds are recorded by pressing them, shown as the system writes them, and can be cleared and reset.
 
+**Every input is choosable.** Anything ngine records from (screen, window, app, microphone, system sound, output device) can be chosen where it is shown, defaults to the system's choice, and says plainly when a remembered device is missing.
+
 **Hierarchy.** One primary action per screen, obviously so. Secondary actions quieter. Related things grouped; unrelated things separated by space, not boxes. No card inside a card. No borders where spacing does the job.
 
 **Grid and spacing.** A 4 px grid. One set of spacing steps (4, 8, 12, 16, 24, 32) used consistently. Left edges align down the page. Equal gaps between equal things. Controls in a row share one height. Text baselines line up across a row.

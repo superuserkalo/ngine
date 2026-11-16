@@ -170,7 +170,7 @@ pub(crate) fn is_proven_dead(
         && lock() != OwnerLock::Held
 }
 
-pub(crate) fn owner_process(process: u32) -> OwnerProcess {
+pub(crate) fn owner_process(process: u32, session_created_nanos: u128) -> OwnerProcess {
     if process == process::id() {
         return OwnerProcess::ThisOne;
     }
@@ -183,10 +183,13 @@ pub(crate) fn owner_process(process: u32) -> OwnerProcess {
         true,
         ProcessRefreshKind::nothing(),
     );
-    if system.process(process).is_some() {
-        OwnerProcess::Running
-    } else {
-        OwnerProcess::Gone
+    let session_created_seconds = session_created_nanos / 1_000_000_000;
+    match system.process(process) {
+        Some(found) if u128::from(found.start_time()) > session_created_seconds => {
+            OwnerProcess::Gone
+        }
+        Some(_) => OwnerProcess::Running,
+        None => OwnerProcess::Gone,
     }
 }
 
@@ -249,7 +252,7 @@ pub(crate) fn remove_dead_sessions(
             continue;
         };
         let directory = entry.path();
-        let owner = owner_process(name.process);
+        let owner = owner_process(name.process, name.stamp);
         if is_proven_dead(&name.host, this_host, owner, || owner_lock(&directory)) {
             remove_unit_files(&directory, &mut removed);
             drop(fs::remove_file(directory.join(OWNER_LOCK)));

@@ -1258,11 +1258,25 @@ fn spawn_helper(folder: Option<&Path>) -> Child {
     command.spawn().unwrap()
 }
 
-fn process_that_has_ended() -> u32 {
+fn process_that_has_ended() -> (u32, u128) {
     let mut helper = spawn_helper(None);
     let process = helper.id();
+    let while_running = after_a_clock_second();
     helper.wait().unwrap();
-    process
+    (process, while_running)
+}
+
+fn after_a_clock_second() -> u128 {
+    let stamp = now_nanos();
+    thread::sleep(Duration::from_millis(1_100));
+    stamp
+}
+
+fn now_nanos() -> u128 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos()
 }
 
 #[test]
@@ -1299,7 +1313,11 @@ fn files_of_another_running_process_stay_until_it_is_dead() {
     let folder = TempFolder::new();
     let mut helper = spawn_helper(Some(&folder.0));
     wait_until_the_helper_holds(&mut helper);
-    assert_eq!(owner_process(helper.id()), OwnerProcess::Running);
+    let while_running = after_a_clock_second();
+    assert_eq!(
+        owner_process(helper.id(), while_running),
+        OwnerProcess::Running
+    );
     let sessions = names_in(&folder.root());
     assert_eq!(sessions.len(), 1);
     let session = folder.root().join(&sessions[0]);
@@ -1317,7 +1335,10 @@ fn files_of_another_running_process_stay_until_it_is_dead() {
 
     helper.kill().unwrap();
     helper.wait().unwrap();
-    assert_eq!(owner_process(helper.id()), OwnerProcess::Gone);
+    assert_eq!(
+        owner_process(helper.id(), while_running),
+        OwnerProcess::Gone
+    );
     assert_eq!(
         names_in(&session),
         files,
@@ -1332,10 +1353,27 @@ fn files_of_another_running_process_stay_until_it_is_dead() {
 
 #[test]
 fn owner_process_tells_this_process_from_a_running_and_an_ended_one() {
-    assert_eq!(owner_process(process::id()), OwnerProcess::ThisOne);
-    assert_eq!(owner_process(process_that_has_ended()), OwnerProcess::Gone);
+    assert_eq!(
+        owner_process(process::id(), now_nanos()),
+        OwnerProcess::ThisOne
+    );
+    let (ended, while_running) = process_that_has_ended();
+    assert_eq!(owner_process(ended, while_running), OwnerProcess::Gone);
     #[cfg(unix)]
-    assert_eq!(owner_process(1), OwnerProcess::Running);
+    assert_eq!(owner_process(1, now_nanos()), OwnerProcess::Running);
+}
+
+#[test]
+fn a_process_number_reused_after_the_session_began_is_not_its_owner() {
+    let mut helper = spawn_helper(Some(&TempFolder::new().0));
+    wait_until_the_helper_holds(&mut helper);
+    let before_the_helper_started = 0;
+    assert_eq!(
+        owner_process(helper.id(), before_the_helper_started),
+        OwnerProcess::Gone
+    );
+    helper.kill().unwrap();
+    helper.wait().unwrap();
 }
 
 fn leftover_session(root: &Path, name: &SessionName, files: &[(&str, usize)]) -> PathBuf {
@@ -1362,7 +1400,7 @@ fn crash_leftovers_are_removed_and_nothing_else_is() {
     let live_files = names_in(&live_session);
     assert!(live_files.len() > 2);
 
-    let ended = process_that_has_ended();
+    let (ended, _) = process_that_has_ended();
     let session_of = |host: String, process, stamp| SessionName {
         host,
         process,

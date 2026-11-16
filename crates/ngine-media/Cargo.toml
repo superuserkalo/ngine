@@ -1,0 +1,17 @@
+[package]
+name = "ngine-media"
+description = "The safe wrapper around FFmpeg: encode, decode, mux, remux, resample and mix"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+build = "build.rs"
+links = "ngine_ffmpeg"
+
+[build-dependencies]
+bindgen = { version = "=0.73.2", default-features = false, features = ["runtime"] }
+
+[lints]
+workspace = true

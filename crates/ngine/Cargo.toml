@@ -11,5 +11,14 @@ publish.workspace = true
 [dependencies]
 rune = { git = "https://github.com/anomalyco/rune", rev = "80022c59736b9ef48c2b6954ba29bafbc78ae428", default-features = false, features = ["accessibility", "dbus", "embedded-fonts", "metal-backend", "svg"] }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "=0.6.5"
+objc2-app-kit = { version = "=0.3.2", default-features = false, features = ["std", "NSButton", "NSControl", "NSImage", "NSMenu", "NSMenuItem", "NSResponder", "NSStatusBar", "NSStatusBarButton", "NSStatusItem", "NSView", "objc2-core-foundation"] }
+objc2-foundation = { version = "=0.3.2", default-features = false, features = ["std", "NSString"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+interprocess = { version = "=2.4.8", default-features = false }
+widestring = "=1.2.1"
+
 [lints]
 workspace = true

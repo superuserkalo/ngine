@@ -1,49 +1,48 @@
-use rune::tok::{self, type_};
-use rune::{AppSpec, Cx, El, col, text};
+use std::fmt;
 
-const NAME: &str = env!("CARGO_PKG_NAME");
-const VERSION: &str = env!("CARGO_PKG_VERSION");
-const WINDOW_SIZE: (f32, f32) = (720.0, 480.0);
+mod app;
+mod cli;
+mod engine;
+mod format;
+mod hotkeys;
+mod ipc;
+mod platform;
+mod settings;
+mod shell;
+mod toast;
+mod tray;
+mod ui;
 
-#[derive(Default)]
-struct State;
+struct Failure(String);
 
-fn view(_: &State, _: &mut Cx<State>) -> El {
-    let theme = tok::theme(true);
-    col()
-        .w_full()
-        .h_full()
-        .center()
-        .gap(8.0)
-        .fill(theme.bg)
-        .child(text(NAME).key("name").font(type_::TITLE).color(theme.text))
-        .child(
-            text(VERSION)
-                .key("version")
-                .font(type_::BODY)
-                .color(theme.text),
-        )
-}
-
-fn main() {
-    rune::run(AppSpec::<State>::new(
-        NAME,
-        WINDOW_SIZE,
-        State::default,
-        view,
-    ));
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use rune::{Env, Runtime};
-
-    #[test]
-    fn the_window_shows_the_name_and_version() {
-        let mut runtime = Runtime::new(State, view, WINDOW_SIZE, Env::new(true, 2.0));
-        runtime.frame(0.0);
-        assert!(runtime.find("name").is_some());
-        assert!(runtime.find("version").is_some());
+impl fmt::Debug for Failure {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
     }
+}
+
+fn control(arguments: &[String]) -> Result<(), String> {
+    let command = cli::parse(arguments).map_err(|error| format!("{error}\n\n{}", cli::USAGE))?;
+    let message = shell::send(command)??;
+    println!("{message}");
+    Ok(())
+}
+
+fn main() -> Result<(), Failure> {
+    let arguments: Vec<String> = std::env::args().skip(1).collect();
+    let outcome = match arguments.first().map(String::as_str) {
+        None => shell::run(false),
+        Some(platform::BACKGROUND_FLAG) => shell::run(true),
+        Some("--help" | "-h" | "help") => {
+            println!("{}", cli::USAGE);
+            Ok(())
+        }
+        Some("--version") => {
+            println!("{} {}", app::NAME, app::VERSION);
+            Ok(())
+        }
+        Some(flag) if flag.starts_with("--") => shell::run_tooling(arguments),
+        Some(_) => control(&arguments),
+    };
+    outcome.map_err(Failure)
 }

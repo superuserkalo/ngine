@@ -3,9 +3,9 @@
 ngine is a free, open-source screen recorder and clipper for Windows, macOS and
 Linux, written in Rust. Being lightweight is the point of the product.
 
-**Status: an empty window.** The app opens a window that shows its name and
-version. Nothing captures or encodes yet. Never describe planned work as
-finished.
+**Status: a preview on a simulated engine.** The window, settings, tray,
+hotkeys and command line work against a stand-in. Nothing records a file yet.
+Never describe planned work as finished.
 
 ## Decided
 

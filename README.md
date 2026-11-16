@@ -11,8 +11,9 @@ into clips. One small native app, the same on every operating system.
 
 ## Status
 
-ngine is at the start. The app opens an empty window. It does not record
-anything yet, and there is nothing to download.
+ngine is being built. The app opens with its window, settings, tray icon and
+hotkeys, but they drive a simulated engine. It does not record anything yet,
+and there is nothing to download.
 
 ## Goals
 

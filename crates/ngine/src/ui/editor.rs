@@ -319,7 +319,7 @@ fn source_row(p: &Paint, editor: &Editor, source: Source) -> El {
     .opacity(if level.on { 1.0 } else { 0.4 });
     col()
         .key(key)
-        .px(space::S3)
+        .px(space::S3 + 2.0)
         .py(space::S2)
         .gap(space::S2)
         .child(

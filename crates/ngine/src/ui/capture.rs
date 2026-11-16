@@ -106,7 +106,9 @@ fn windows_words(count: usize) -> String {
 fn target_detail(app: &Ngine, target: &Target) -> String {
     match target.kind {
         TargetKind::App => format!("App · all {}", windows_words(window_count(app, target))),
-        TargetKind::Window | TargetKind::Screen if target.detail.is_empty() => {
+        TargetKind::Window | TargetKind::Screen
+            if target.detail.is_empty() || target.detail == target.name =>
+        {
             kind_word(target.kind).to_owned()
         }
         TargetKind::Window => format!("Window of {}", target.detail),
@@ -502,7 +504,7 @@ fn audio_row(p: &Paint, narrow: bool, meter_width: f32, audio: AudioRow) -> El {
         .key(key)
         .min_h(48.0)
         .pl(space::S3 + space::S1)
-        .pr(space::S3)
+        .pr(space::S3 + space::S1)
         .gap(space::S3)
         .center_y()
         .child(
@@ -585,10 +587,8 @@ fn audio(ui: &mut Ui<'_>) -> El {
             VOLUME_WIDTH + space::S2 + 40.0 + space::S3
         };
     let device_width = (ui.content_width() - beside).clamp(96.0, DEVICE_WIDTH);
-    let system_device = system_sound_select(ui, "capture-system-sound", device_width, Align::Start)
-        .fill(Color::TRANSPARENT);
-    let microphone_device = microphone_select(ui, "capture-microphone", device_width, Align::Start)
-        .fill(Color::TRANSPARENT);
+    let system_device = system_sound_select(ui, "capture-system-sound", device_width, Align::Start);
+    let microphone_device = microphone_select(ui, "capture-microphone", device_width, Align::Start);
     let p = ui.p;
     let app = ui.app;
     let audio = app.settings.audio;
@@ -930,7 +930,7 @@ fn recent(ui: &Ui<'_>) -> Option<El> {
                 row()
                     .key("recent-head")
                     .center_y()
-                    .child(section_title(&p, "recent-title", "Recent").ml(space::S1))
+                    .child(section_title(&p, "recent-title", "Recent"))
                     .child(spacer())
                     .child(
                         Button::new("recent-all", "Show all")

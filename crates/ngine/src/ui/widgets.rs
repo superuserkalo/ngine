@@ -812,7 +812,7 @@ pub fn section_title(p: &Paint, key: &str, title: &str) -> El {
 pub fn section(p: &Paint, key: &str, title: &str, rows: Vec<El>) -> El {
     let mut group = col().key(key).gap(space::S2);
     if !title.is_empty() {
-        group = group.child(section_title(p, &format!("{key}-title"), title).ml(space::S1));
+        group = group.child(section_title(p, &format!("{key}-title"), title));
     }
     group.child(card(p, &format!("{key}-card"), rows))
 }

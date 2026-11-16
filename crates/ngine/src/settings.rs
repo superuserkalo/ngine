@@ -62,6 +62,13 @@ impl Hotkeys {
     }
 }
 
+/// How ngine tells that a file was saved or that something went wrong.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Announcements {
+    pub overlay: bool,
+    pub desktop: bool,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Settings {
     pub video: Video,
@@ -70,6 +77,7 @@ pub struct Settings {
     pub output_folder: PathBuf,
     pub hotkeys: Hotkeys,
     pub start_at_login: bool,
+    pub announcements: Announcements,
 }
 
 impl Settings {
@@ -108,6 +116,10 @@ impl Settings {
                 marker: "ctrl+alt+m".into(),
             },
             start_at_login: false,
+            announcements: Announcements {
+                overlay: true,
+                desktop: true,
+            },
         }
     }
 }
@@ -188,6 +200,7 @@ fn entries(settings: &Settings) -> Vec<(&'static str, Entry)> {
         output_folder,
         hotkeys,
         start_at_login,
+        announcements,
     } = settings;
     vec![
         ("video.codec", Entry::Text(video.codec.name().into())),
@@ -246,6 +259,8 @@ fn entries(settings: &Settings) -> Vec<(&'static str, Entry)> {
         ),
         ("hotkeys.marker", Entry::Text(hotkeys.marker.clone())),
         ("start_at_login", Entry::Flag(*start_at_login)),
+        ("announcements.overlay", Entry::Flag(announcements.overlay)),
+        ("announcements.desktop", Entry::Flag(announcements.desktop)),
     ]
 }
 
@@ -306,6 +321,7 @@ fn read(prefs: &Prefs, defaults: Settings) -> Settings {
         output_folder,
         hotkeys,
         start_at_login,
+        announcements,
     } = defaults;
     let length_seconds = reader.seconds("replay.length_seconds", replay.length_seconds);
     Settings {
@@ -349,6 +365,10 @@ fn read(prefs: &Prefs, defaults: Settings) -> Settings {
             marker: reader.text("hotkeys.marker", hotkeys.marker),
         },
         start_at_login: reader.flag("start_at_login", start_at_login),
+        announcements: Announcements {
+            overlay: reader.flag("announcements.overlay", announcements.overlay),
+            desktop: reader.flag("announcements.desktop", announcements.desktop),
+        },
     }
 }
 
@@ -451,6 +471,10 @@ mod tests {
         settings.output_folder = PathBuf::from("/clips");
         settings.hotkeys.marker = "ctrl+shift+m".into();
         settings.start_at_login = true;
+        settings.announcements = Announcements {
+            overlay: false,
+            desktop: false,
+        };
         settings
     }
 

@@ -12,8 +12,11 @@ ngine forward.
 Commands for the running ngine:
   record start              Start recording
   record stop               Stop recording and keep the file
+  record toggle             Start recording, or stop the running recording
+  record status             Succeed while a recording runs, fail otherwise
   replay on                 Turn instant replay on
   replay off                Turn instant replay off
+  replay toggle             Turn instant replay on or off
   replay save               Save everything the replay buffer holds
   replay save --last 30s    Save the last 30 seconds (also 90, 2m, 1m30s)
   marker                    Drop a marker in the running recording
@@ -27,11 +30,16 @@ Options:
 pub enum Command {
     RecordStart,
     RecordStop,
+    RecordToggle,
+    RecordStatus,
     ReplayOn,
     ReplayOff,
+    ReplayToggle,
     ReplaySave(ReplaySpan),
     Marker,
     Status,
+    State,
+    Watch,
     Show,
 }
 
@@ -99,8 +107,11 @@ pub fn parse(arguments: &[String]) -> Result<Command, UsageError> {
     match words.as_slice() {
         ["record", "start"] => Ok(Command::RecordStart),
         ["record", "stop"] => Ok(Command::RecordStop),
+        ["record", "toggle"] => Ok(Command::RecordToggle),
+        ["record", "status"] => Ok(Command::RecordStatus),
         ["replay", "on"] => Ok(Command::ReplayOn),
         ["replay", "off"] => Ok(Command::ReplayOff),
+        ["replay", "toggle"] => Ok(Command::ReplayToggle),
         ["replay", "save", options @ ..] => parse_save(options),
         ["marker"] => Ok(Command::Marker),
         ["status"] => Ok(Command::Status),
@@ -113,14 +124,19 @@ impl Command {
         match self {
             Self::RecordStart => "record start".into(),
             Self::RecordStop => "record stop".into(),
+            Self::RecordToggle => "record toggle".into(),
+            Self::RecordStatus => "record status".into(),
             Self::ReplayOn => "replay on".into(),
             Self::ReplayOff => "replay off".into(),
+            Self::ReplayToggle => "replay toggle".into(),
             Self::ReplaySave(ReplaySpan::Everything) => "replay save all".into(),
             Self::ReplaySave(ReplaySpan::Last(length)) => {
                 format!("replay save {}", length.as_secs())
             }
             Self::Marker => "marker".into(),
             Self::Status => "status".into(),
+            Self::State => "state".into(),
+            Self::Watch => "watch".into(),
             Self::Show => "show".into(),
         }
     }
@@ -130,8 +146,11 @@ impl Command {
         match words.as_slice() {
             ["record", "start"] => Some(Self::RecordStart),
             ["record", "stop"] => Some(Self::RecordStop),
+            ["record", "toggle"] => Some(Self::RecordToggle),
+            ["record", "status"] => Some(Self::RecordStatus),
             ["replay", "on"] => Some(Self::ReplayOn),
             ["replay", "off"] => Some(Self::ReplayOff),
+            ["replay", "toggle"] => Some(Self::ReplayToggle),
             ["replay", "save", "all"] => Some(Self::ReplaySave(ReplaySpan::Everything)),
             ["replay", "save", seconds] => seconds
                 .parse()
@@ -140,6 +159,8 @@ impl Command {
                 .map(|seconds| Self::ReplaySave(ReplaySpan::Last(Duration::from_secs(seconds)))),
             ["marker"] => Some(Self::Marker),
             ["status"] => Some(Self::Status),
+            ["state"] => Some(Self::State),
+            ["watch"] => Some(Self::Watch),
             ["show"] => Some(Self::Show),
             _ => None,
         }
@@ -171,15 +192,20 @@ mod tests {
         line.split_whitespace().map(str::to_owned).collect()
     }
 
-    const EVERY_COMMAND: [Command; 9] = [
+    const EVERY_COMMAND: [Command; 14] = [
         Command::RecordStart,
         Command::RecordStop,
+        Command::RecordToggle,
+        Command::RecordStatus,
         Command::ReplayOn,
         Command::ReplayOff,
+        Command::ReplayToggle,
         Command::ReplaySave(ReplaySpan::Everything),
         Command::ReplaySave(ReplaySpan::Last(Duration::from_secs(30))),
         Command::Marker,
         Command::Status,
+        Command::State,
+        Command::Watch,
         Command::Show,
     ];
 
@@ -189,8 +215,11 @@ mod tests {
         for (line, command) in [
             ("record start", Command::RecordStart),
             ("record stop", Command::RecordStop),
+            ("record toggle", Command::RecordToggle),
+            ("record status", Command::RecordStatus),
             ("replay on", Command::ReplayOn),
             ("replay off", Command::ReplayOff),
+            ("replay toggle", Command::ReplayToggle),
             ("replay save --last 30s", last_thirty),
             ("replay save", Command::ReplaySave(ReplaySpan::Everything)),
             ("marker", Command::Marker),

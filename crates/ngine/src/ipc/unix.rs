@@ -59,6 +59,10 @@ fn with_timeouts(stream: UnixStream) -> io::Result<UnixStream> {
     Ok(stream)
 }
 
+pub fn wait_without_limit(stream: &Stream) -> io::Result<()> {
+    stream.set_read_timeout(None)
+}
+
 pub fn connect(address: &Address) -> io::Result<Stream> {
     close_to_others(&address.folder)?;
     with_timeouts(UnixStream::connect(address.socket())?)

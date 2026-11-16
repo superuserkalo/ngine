@@ -3,6 +3,7 @@
 use std::fmt;
 
 mod app;
+mod bar;
 mod cli;
 mod doctor;
 mod editor;
@@ -12,6 +13,14 @@ mod headless;
 mod hotkeys;
 mod ipc;
 mod library;
+#[cfg_attr(
+    not(target_os = "linux"),
+    expect(
+        dead_code,
+        reason = "only on Linux does ngine hand its notifications to a desktop service"
+    )
+)]
+mod notification;
 mod platform;
 mod settings;
 mod shell;
@@ -43,7 +52,13 @@ fn main() -> Result<(), Failure> {
         None => shell::run(false),
         Some(platform::BACKGROUND_FLAG) => shell::run(true),
         Some("--help" | "-h" | "help") => {
-            println!("{}\n\n{}\n\n{}", cli::USAGE, headless::USAGE, doctor::USAGE);
+            println!(
+                "{}\n\n{}\n\n{}\n\n{}",
+                cli::USAGE,
+                bar::USAGE,
+                headless::USAGE,
+                doctor::USAGE
+            );
             Ok(())
         }
         Some(command @ ("record" | "replay"))
@@ -53,6 +68,7 @@ fn main() -> Result<(), Failure> {
         {
             headless::run(command, &arguments[1..])
         }
+        Some("status") if arguments.len() > 1 => shell::show_on_the_bar(&arguments[1..]),
         Some("doctor") => doctor::run(&arguments[1..]),
         Some("--version") => {
             println!("{} {}", app::NAME, app::VERSION);

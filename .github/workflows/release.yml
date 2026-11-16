@@ -132,7 +132,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
       - name: Shell scripts pass shellcheck
-        run: shellcheck --version && shellcheck -x -P SCRIPTDIR packaging/*.sh
+        run: shellcheck --version && shellcheck -x -P SCRIPTDIR packaging/*.sh packaging/omarchy/*.sh
       - name: Linux build packages
         run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libwayland-dev libclang-dev clang pkg-config libpipewire-0.3-dev patchelf
       - name: Install the pinned Rust toolchain
@@ -142,13 +142,16 @@ jobs:
       - name: Build
         run: cargo build --release --locked -p ngine
       - name: Package
-        run: packaging/linux.sh
+        run: |
+          packaging/linux.sh
+          tar -czf dist/ngine-aur.tar.gz -C dist aur
       - uses: actions/upload-artifact@v7.0.2
         with:
           name: linux
           path: |
             dist/*.AppImage
             dist/PKGBUILD
+            dist/ngine-aur.tar.gz
           if-no-files-found: error
 
   publish:

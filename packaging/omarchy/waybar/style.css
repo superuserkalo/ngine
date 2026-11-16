@@ -1,0 +1,12 @@
+/* ngine's module, sized and coloured like #custom-screenrecording-indicator */
+#custom-ngine {
+  min-width: 12px;
+  margin-left: 5px;
+  margin-right: 0;
+  font-size: 10px;
+  padding-bottom: 1px;
+}
+
+#custom-ngine.recording {
+  color: #a55555;
+}

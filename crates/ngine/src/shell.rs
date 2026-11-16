@@ -9,6 +9,7 @@ use rune::dirs::AppDirs;
 use rune::{App, AppHandle, AppSpec, OverlayHandle, ShortcutError, ShortcutId};
 
 use crate::app::{self, Action, NAME, Ngine, WINDOW_SIZE};
+use crate::bar::{self, BarState};
 use crate::cli::{Command, Reply};
 use crate::engine::Engine;
 use crate::engine::fake::{Clock, FakeEngine};
@@ -24,6 +25,7 @@ use crate::ui;
 const SETTINGS_FILE: &str = "settings.json";
 const REPLAY_BUFFER_FOLDER: &str = "replay";
 const THUMBNAIL_FOLDER: &str = "thumbnails";
+const RESTORE_TOKEN_FILE: &str = "picker-restore-token";
 const ANSWER_TIMEOUT: Duration = Duration::from_secs(5);
 const TOAST_FADE: Duration = Duration::from_millis(200);
 const SAMPLE_CONFIRMATION: &str = "Replay saved · 31 s";
@@ -45,6 +47,7 @@ pub struct Shell {
     shown_tray: Option<tray::Model>,
     shortcuts: Vec<ShortcutId>,
     autostart: Autostart,
+    watchers: ipc::Watchers,
     _server: ipc::Server,
 }
 
@@ -63,6 +66,10 @@ impl Shell {
         let text = text.to_owned();
         self.toast.update(move |toast, _| toast.text = text);
         self.toast.show();
+    }
+
+    pub fn publish(&self, state: BarState) {
+        self.watchers.publish(state.encode());
     }
 
     pub fn hide_toast(&self) {
@@ -193,7 +200,10 @@ impl Places {
             eprintln!("ngine: old replay buffer files could not be removed: {error}");
         }
         let engine: Box<dyn Engine> = match Capturer::system() {
-            Ok(capturer) => Box::new(RealEngine::new(capturer)),
+            Ok(capturer) => Box::new(
+                RealEngine::new(capturer)
+                    .keeping_picks_in(self.dirs.state().join(RESTORE_TOKEN_FILE)),
+            ),
             Err(error) => {
                 eprintln!("ngine: capture is simulated on this system: {error}");
                 Box::new(FakeEngine::new(
@@ -213,6 +223,17 @@ pub fn send(command: Command) -> Result<Reply, String> {
     ipc::send(&places.address(), command).map_err(|error| error.to_string())
 }
 
+/// Prints the running ngine's state for a status bar such as Waybar.
+pub fn show_on_the_bar(options: &[String]) -> Result<(), String> {
+    let mode = bar::parse(options).map_err(|error| format!("{error}\n\n{}", bar::USAGE))?;
+    let address = Places::find()?.address();
+    bar::run(mode, || {
+        ipc::watch(&address)
+            .ok()
+            .map(|lines| lines.map_while(|line| BarState::decode(&line)))
+    })
+}
+
 /// Opens the app, or brings the window of the ngine that already runs
 /// forward and returns.
 pub fn run(background: bool) -> Result<(), String> {
@@ -223,6 +244,7 @@ pub fn run(background: bool) -> Result<(), String> {
         return Ok(());
     }
     let autostart = places.autostart()?;
+    rune::set_app_id(NAME);
     let mut app = App::new(spec())
         .args(Vec::new())
         .init(move || places.start())
@@ -245,6 +267,7 @@ pub fn run(background: bool) -> Result<(), String> {
             shown_tray: None,
             shortcuts: Vec::new(),
             autostart,
+            watchers: server.watchers(),
             _server: server,
         });
         tx.wake_after(Duration::ZERO);

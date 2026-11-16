@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "ngine.status",
+  "name": "ngine",
+  "version": "1.0.0",
+  "author": "ngine",
+  "description": "Shows when ngine records or keeps an instant replay",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "NgineStatus.qml"
+  },
+  "barWidget": {
+    "displayName": "ngine",
+    "description": "Shows when ngine records or keeps an instant replay",
+    "category": "System",
+    "defaultSection": "centerEnd",
+    "allowMultiple": false
+  }
+}

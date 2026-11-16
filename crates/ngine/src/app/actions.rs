@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use super::{AfterPick, Ngine};
+use crate::bar::BarState;
 use crate::cli::{Command, Reply};
 use crate::engine::{Refusal, ReplaySpan, Target};
 use crate::format;
@@ -213,13 +214,24 @@ impl Ngine {
 
     pub fn execute(&mut self, command: Command) -> Reply {
         let reply = match command {
-            Command::RecordStart => self.start_recording(),
+            Command::RecordToggle if self.engine.status().recording.is_some() => {
+                self.stop_recording()
+            }
+            Command::RecordStart | Command::RecordToggle => self.start_recording(),
             Command::RecordStop => self.stop_recording(),
             Command::ReplayOn => self.set_replay(true),
             Command::ReplayOff => self.set_replay(false),
+            Command::ReplayToggle => self.set_replay(self.engine.status().replay.is_none()),
             Command::ReplaySave(span) => self.save_replay(span),
             Command::Marker => self.add_marker(),
             Command::Status => return Ok(self.status_line()),
+            Command::RecordStatus if self.engine.status().recording.is_some() => {
+                return Ok(self.status_line());
+            }
+            Command::RecordStatus => return Err(Refusal::NotRecording.to_string()),
+            Command::State | Command::Watch => {
+                return Ok(BarState::of(&self.engine.status()).encode());
+            }
             Command::Show => return self.run(Action::ShowWindow),
         };
         self.sync(self.clock);

@@ -1,0 +1,6 @@
+  "trigger.capture.screenrecord.stop": {"label":"Stop Screenrecording","when":"ngine record status","action":"ngine record stop"},
+  "trigger.capture.screenrecord": {"icon":"","label":"Screenrecord"},
+  "trigger.capture.screenrecord.no-audio": {"icon":"","label":"Start recording","when":"! ngine record status","action":"ngine record start"},
+  "trigger.capture.screenrecord.desktop-audio": {"icon":"󰑙","label":"Instant replay on or off","action":"ngine replay toggle"},
+  "trigger.capture.screenrecord.microphone": {"icon":"","label":"Save the last 30 seconds","action":"ngine replay save --last 30s"},
+  "trigger.capture.screenrecord.webcam": {"icon":"","label":"Open ngine","when":"true","action":"uwsm-app -- ngine"},

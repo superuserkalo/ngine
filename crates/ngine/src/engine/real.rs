@@ -1,10 +1,10 @@
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::time::{Duration, SystemTime};
 
-use ngine_capture::{CaptureError, Capturer, PickedTarget, PickerOptions};
+use ngine_capture::{CaptureError, Capturer, PickedTarget, PickerOptions, RestoreToken};
 use ngine_recorder::replay::{
     BackendChoice, ReplayLength, SaveRange, installed_memory_bytes, memory_budget_bytes,
 };
@@ -56,6 +56,30 @@ pub struct RealEngine {
     targets_picked: u32,
     earlier_parts: Duration,
     save_folder: Option<PathBuf>,
+    restore_token_file: Option<PathBuf>,
+}
+
+fn read_restore_token(file: &Path) -> Option<RestoreToken> {
+    let token = std::fs::read_to_string(file).ok()?;
+    let token = token.trim();
+    (!token.is_empty()).then(|| RestoreToken::new(token))
+}
+
+fn picker_options(restore_token_file: Option<&Path>) -> PickerOptions {
+    match restore_token_file.and_then(read_restore_token) {
+        Some(token) => PickerOptions::new().with_restore_token(token),
+        None => PickerOptions::new(),
+    }
+}
+
+fn keep_restore_token(file: &Path, token: &RestoreToken) {
+    let written = file
+        .parent()
+        .map_or(Ok(()), std::fs::create_dir_all)
+        .and_then(|()| std::fs::write(file, token.as_str()));
+    if let Err(error) = written {
+        eprintln!("ngine: the system picker's choice could not be kept: {error}");
+    }
 }
 
 fn stamped(kind: &str) -> String {
@@ -157,7 +181,17 @@ impl RealEngine {
             targets_picked: 0,
             earlier_parts: Duration::ZERO,
             save_folder: None,
+            restore_token_file: None,
         }
+    }
+
+    /// Keeps what the person chose in the system picker in `file`, so the
+    /// picker can skip its dialogue next time, also after a restart, where
+    /// the system offers that (the XDG desktop portal on Linux).
+    #[must_use]
+    pub fn keeping_picks_in(mut self, file: PathBuf) -> Self {
+        self.restore_token_file = Some(file);
+        self
     }
 
     fn remember(&mut self, target: Target, capture: ngine_capture::Target) -> Target {
@@ -225,6 +259,11 @@ impl RealEngine {
         while let Ok(picked) = self.picks.try_recv() {
             let event = match picked {
                 Ok(Some(picked)) => {
+                    if let (Some(file), Some(token)) =
+                        (&self.restore_token_file, &picked.restore_token)
+                    {
+                        keep_restore_token(file, token);
+                    }
                     self.targets_picked += 1;
                     let capture = picked.target;
                     let target = Target {
@@ -472,9 +511,12 @@ impl Engine for RealEngine {
     fn pick_target(&mut self) {
         let sender = self.pick_sender.clone();
         match self.capturer.picker() {
-            Some(picker) => picker.pick(PickerOptions::new(), move |picked| {
-                let _engine_is_gone = sender.send(picked);
-            }),
+            Some(picker) => picker.pick(
+                picker_options(self.restore_token_file.as_deref()),
+                move |picked| {
+                    let _engine_is_gone = sender.send(picked);
+                },
+            ),
             None => self.events.push(Event::PickCancelled),
         }
     }
@@ -608,5 +650,30 @@ impl Engine for RealEngine {
         self.take_picks();
         self.take_recorder_events();
         std::mem::take(&mut self.events)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_pickers_choice_is_kept_across_starts_in_a_file() {
+        let file = std::env::temp_dir()
+            .join(format!("ngine-restore-token-{}", std::process::id()))
+            .join("picker-restore-token");
+        assert_eq!(picker_options(Some(&file)), PickerOptions::new());
+        assert_eq!(picker_options(None), PickerOptions::new());
+        let token = RestoreToken::new("4f3c-token");
+        keep_restore_token(&file, &token);
+        assert_eq!(
+            picker_options(Some(&file)),
+            PickerOptions::new().with_restore_token(token)
+        );
+        std::fs::write(&file, "\n").expect("the file is emptied");
+        assert_eq!(picker_options(Some(&file)), PickerOptions::new());
+        if let Some(folder) = file.parent() {
+            std::fs::remove_dir_all(folder).expect("the temp folder is removed");
+        }
     }
 }

@@ -15,6 +15,33 @@ mod os;
 #[path = "platform/windows_console.rs"]
 mod console;
 
+#[cfg(target_os = "linux")]
+#[path = "platform/freedesktop_notifications.rs"]
+mod desktop_notifications;
+
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the window's palette is connected to it next")
+)]
+#[path = "platform/omarchy_theme.rs"]
+pub mod omarchy_theme;
+
+#[cfg(target_os = "linux")]
+#[expect(dead_code, reason = "the window's palette is connected to it next")]
+#[path = "platform/omarchy_theme_watch.rs"]
+pub mod omarchy_theme_watch;
+
+use crate::notification::Notification;
+
+/// Shows the notification through the desktop's notification service, where
+/// ngine talks to one. Elsewhere ngine's own overlay is all there is.
+pub fn notify(notification: Notification) {
+    #[cfg(target_os = "linux")]
+    desktop_notifications::show(notification);
+    #[cfg(not(target_os = "linux"))]
+    drop(notification);
+}
+
 /// Makes what ngine prints appear in the terminal it was started from. On
 /// Windows ngine is a windowed program, which has no console of its own, so
 /// it joins its parent's when there is one. Elsewhere there is nothing to

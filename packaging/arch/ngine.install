@@ -1,0 +1,13 @@
+post_install() {
+  echo "To make ngine Omarchy's screen recorder (ALT + PRINT, the capture menu and the bar), run as yourself:"
+  echo "  /usr/share/ngine/omarchy/install.sh"
+  echo "/usr/share/ngine/omarchy/uninstall.sh takes it out again."
+}
+
+post_upgrade() {
+  :
+}
+
+pre_remove() {
+  echo "If you ran /usr/share/ngine/omarchy/install.sh, run /usr/share/ngine/omarchy/uninstall.sh first, as yourself."
+}

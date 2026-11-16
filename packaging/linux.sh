@@ -61,6 +61,8 @@ install_shared_files() {
   install -D -m 644 "$packaging_root/linux/ngine.desktop" "$share/applications/ngine.desktop"
   install -D -m 644 "$packaging_root/icon.svg" "$share/icons/hicolor/scalable/apps/ngine.svg"
   "$packaging_root/notices.sh" "$share/licenses/ngine"
+  mkdir -p "$share/ngine/omarchy"
+  cp -R "$packaging_root/omarchy/." "$share/ngine/omarchy/"
 }
 
 install_tree() {
@@ -107,9 +109,24 @@ build_appimage() {
   echo "Built $appimage ($(du -h "$appimage" | cut -f1))"
 }
 
+write_aur_package() {
+  local name=$1 pkgbuild=$2 sha256=$3 folder=$dist_dir/aur/$1
+  mkdir -p "$folder"
+  sed -e "s/^pkgver=.*/pkgver=$version/" -e "s/^sha256sums=('SKIP')$/sha256sums=('$sha256')/" \
+    "$pkgbuild" >"$folder/PKGBUILD"
+  cp "$packaging_root/arch/ngine.install" "$folder/"
+  if command -v makepkg >/dev/null; then
+    (cd "$folder" && makepkg --printsrcinfo >.SRCINFO)
+  fi
+  echo "Wrote $folder for the AUR"
+}
+
 write_pkgbuild() {
+  local appimage=$dist_dir/ngine-$version-linux-x86_64.AppImage
   sed "s/^pkgver=.*/pkgver=$version/" "$packaging_root/arch/PKGBUILD" > "$dist_dir/PKGBUILD"
   echo "Wrote $dist_dir/PKGBUILD for ngine $version"
+  write_aur_package ngine "$packaging_root/arch/PKGBUILD" SKIP
+  write_aur_package ngine-bin "$packaging_root/arch/PKGBUILD-bin" "$(sha256_of "$appimage")"
 }
 
 case $mode in

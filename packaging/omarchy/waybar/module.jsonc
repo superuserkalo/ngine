@@ -1,0 +1,6 @@
+"custom/ngine": {
+  "exec": "ngine status --waybar --watch",
+  "return-type": "json",
+  "on-click": "ngine record stop || ngine replay save",
+  "on-click-right": "ngine"
+},

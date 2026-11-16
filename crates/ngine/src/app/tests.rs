@@ -58,6 +58,39 @@ fn commands_drive_a_recording_and_say_what_happened() {
 }
 
 #[test]
+fn toggles_start_what_is_off_and_stop_what_is_on() {
+    let mut app = demo::idle();
+    assert_eq!(app.execute(Command::State), Ok("idle".into()));
+    assert_eq!(
+        app.execute(Command::RecordStatus),
+        Err("No recording is running".into())
+    );
+    assert_eq!(
+        app.execute(Command::RecordToggle),
+        Ok("Recording Built-in display".into())
+    );
+    assert!(app.execute(Command::RecordStatus).is_ok());
+    assert!(
+        app.execute(Command::ReplayToggle)
+            .is_ok_and(|reply| reply.starts_with("Instant replay is on"))
+    );
+    pass(&mut app, Duration::from_secs(5));
+    assert_eq!(
+        app.execute(Command::State),
+        Ok("recording 5 replay 5 60".into())
+    );
+    assert_eq!(
+        app.execute(Command::RecordToggle),
+        Ok("Recording saved · 5 s".into())
+    );
+    assert_eq!(
+        app.execute(Command::ReplayToggle),
+        Ok("Instant replay is off".into())
+    );
+    assert_eq!(app.execute(Command::State), Ok("idle".into()));
+}
+
+#[test]
 fn commands_drive_replay_and_its_saves() {
     let mut app = demo::idle();
     let last_thirty = Command::ReplaySave(ReplaySpan::Last(Duration::from_secs(30)));

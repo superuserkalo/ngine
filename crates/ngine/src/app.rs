@@ -3,6 +3,7 @@ use std::time::Duration;
 
 use rune::{Key, KeyEvent, TextEdit, Tx};
 
+use crate::bar::BarState;
 use crate::editor::Editor;
 use crate::engine::fake::FakeEngine;
 use crate::engine::{
@@ -12,6 +13,8 @@ use crate::engine::{
 use crate::format;
 use crate::hotkeys;
 use crate::library::{self, Library};
+use crate::notification::Notification;
+use crate::platform;
 use crate::settings::{Settings, Store};
 use crate::shell::Shell;
 use crate::tray;
@@ -336,8 +339,16 @@ impl Ngine {
         });
     }
 
+    fn announce(&self, notification: Notification) {
+        if self.settings.announcements.desktop && self.shell.is_some() {
+            platform::notify(notification);
+        }
+    }
+
     fn confirm(&mut self, text: String) {
-        if let Some(shell) = &self.shell {
+        if self.settings.announcements.overlay
+            && let Some(shell) = &self.shell
+        {
             shell.show_toast(&text);
         }
         self.confirmation = Some(Confirmation {
@@ -370,12 +381,14 @@ impl Ngine {
             Event::RecordingStarted => self
                 .problems
                 .retain(|problem| !matches!(problem, Problem::PermissionMissing(_))),
-            Event::RecordingStopped { length, .. } => {
+            Event::RecordingStopped { file, length } => {
                 self.confirm(format!("Recording saved · {}", format::length(length)));
+                self.announce(Notification::recording_saved(&file, length));
                 self.refresh_library();
             }
-            Event::ReplaySaved { length, .. } => {
+            Event::ReplaySaved { file, length } => {
                 self.confirm(format!("Replay saved · {}", format::length(length)));
+                self.announce(Notification::replay_saved(&file, length));
                 self.refresh_library();
             }
             Event::Problem(problem) => self.raise(problem),
@@ -385,6 +398,7 @@ impl Ngine {
 
     fn raise(&mut self, problem: Problem) {
         if !self.problems.contains(&problem) {
+            self.announce(Notification::problem(&problem));
             self.problems.push(problem);
         }
     }
@@ -405,6 +419,7 @@ impl Ngine {
     fn show_tray(&mut self) {
         if let Some(shell) = &mut self.shell {
             shell.show_tray(tray::Model::of(&self.status, &self.settings));
+            shell.publish(BarState::of(&self.status));
         }
     }
 

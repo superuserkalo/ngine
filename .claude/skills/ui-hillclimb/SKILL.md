@@ -15,7 +15,7 @@ Climb from the window as it is. Its structure is the owner's accepted starting p
 2. **Judge with fresh eyes.** Spawn a reviewer subagent that has NOT seen the code or your reasoning. Give it only this rubric and the round's PNG paths, and ask for every defect with the scene, the exact place, and how bad it is (blocker, clear flaw, nit). Look at every PNG yourself too.
 3. **Fix the worst first.** Blockers, then clear flaws. Nits only when nothing worse is left.
 4. **Repeat** until a round finds no blocker and no clear flaw, or three rounds have run without progress. Keep each round's pictures so the owner can see the climb.
-5. **Drive the real app** on this Mac for what pictures cannot show: hover, focus, keyboard, menus, timing.
+5. **Drive the real app** on this Mac for what pictures cannot show: hover, cursor, focus, keyboard, menus, timing. If macOS refuses scripted clicks, use the app's own test runtime to click every control and assert something opens, and say plainly that a person still has to try it.
 6. **Learn from misses.** When the owner finds a problem the rubric did not catch, add the rule that would have caught it to the rubric below, in the same commit as the fix.
 
 ## Rubric
@@ -37,6 +37,10 @@ Climb from the window as it is. Its structure is the owner's accepted starting p
 **Space.** Content uses the window: no large dead areas next to cramped ones, nothing cut off at 720×480, nothing stretched thin at 1280×800. Long names truncate with an ellipsis, never collide.
 
 **Window frame.** No stock system title bar on any system: on Windows no white caption bar with the app name, on macOS the traffic lights sit inside ngine's own top strip, under Hyprland nothing at all. The top strip drags the window, double-click behaves as the system does, and no content collides with the window controls.
+
+**The top row.** With no title text, the first row of each screen (toolbar, back control, name, help) sits on the same line as the window controls, vertically centred with them, and the content starts right under it. No empty band where a heading used to be.
+
+**It responds.** Every clickable thing shows the hand cursor on hover and a text field shows the text cursor. Every menu, popover and sheet opens on the first click within one frame and closes and reopens reliably, every time. Click each one in the real app; a picture cannot prove this.
 
 **Live state.** Recording and replay state is shown where it matters, small and calm, and only when something is live. Meters move when there is sound.
 

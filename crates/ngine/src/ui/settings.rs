@@ -1,5 +1,5 @@
 use rune::tok::{radius, space, type_};
-use rune::{Color, Cursor, El, Icon, PhysicalInput, col, el, icon, row, text};
+use rune::{Align, Color, Cursor, El, Icon, PhysicalInput, col, el, icon, row, text};
 
 use super::capture::{microphone_select, system_sound_select, volume};
 use super::widgets::{
@@ -22,7 +22,7 @@ const HOTKEY_WIDTH: f32 = 160.0;
 const SLIDER_WIDTH: f32 = 120.0;
 const SHEET_MARGIN: f32 = 32.0;
 const WIDEST_SHEET: f32 = 860.0;
-const TALLEST_SHEET: f32 = 560.0;
+const TALLEST_SHEET: f32 = 640.0;
 const SHEET_RADIUS: f32 = 14.0;
 
 pub const NOT_SET: &str = "Not set";
@@ -79,13 +79,7 @@ fn list(ui: &Ui<'_>, width: f32) -> El {
         .role("tablist")
         .label("Settings sections")
         .focus_group()
-        .w(width)
-        .h_full()
-        .px(space::S2)
-        .py(space::S3)
-        .gap(2.0)
-        .fill(p.sidebar)
-        .border_sides([0.0, p.hair, 0.0, 0.0], p.t.separator);
+        .gap(2.0);
     for section in Section::ALL {
         let current = ui.app.section == section;
         let ink = if current {
@@ -127,7 +121,23 @@ fn list(ui: &Ui<'_>, width: f32) -> El {
                 ),
         );
     }
-    items
+    col()
+        .key("sections-side")
+        .w(width)
+        .h_full()
+        .px(space::S2)
+        .py(space::S3)
+        .gap(space::S3)
+        .fill(p.sidebar)
+        .border_sides([0.0, p.hair, 0.0, 0.0], p.t.separator)
+        .child(
+            Button::new("settings-close", "Close")
+                .only_icon(&icons::X)
+                .look(Look::Quiet)
+                .help("Close (Esc)")
+                .build(p, Ngine::close_settings),
+        )
+        .child(items)
 }
 
 pub fn codec_label(codec: Codec) -> &'static str {
@@ -254,8 +264,8 @@ fn video(ui: &mut Ui<'_>) -> Vec<El> {
 
 fn audio(ui: &mut Ui<'_>) -> Vec<El> {
     let p = ui.p;
-    let microphone = microphone_select(ui, "settings-microphone", SELECT_WIDTH);
-    let system = system_sound_select(ui, "settings-system-sound", SELECT_WIDTH);
+    let microphone = microphone_select(ui, "settings-microphone", SELECT_WIDTH, Align::End);
+    let system = system_sound_select(ui, "settings-system-sound", SELECT_WIDTH, Align::End);
     let app = ui.app;
     let audio = app.settings.audio;
     let tracks = segmented(
@@ -826,7 +836,7 @@ pub fn sheet(ui: &mut Ui<'_>) {
         .key(format!("settings-{}", section_id(section)))
         .w_full()
         .px(space::S6)
-        .pt(52.0)
+        .pt(space::S6)
         .pb(space::S6)
         .gap(space::S6)
         .children(rows);
@@ -856,15 +866,7 @@ pub fn sheet(ui: &mut Ui<'_>) {
         .shadow(24.0, 64.0, p.t.shadow)
         .modal(true, close)
         .child(list(ui, list_width))
-        .child(body)
-        .child(
-            Button::new("settings-close", "Close")
-                .only_icon(&icons::X)
-                .look(Look::Quiet)
-                .help("Close (Esc)")
-                .build(&p, Ngine::close_settings)
-                .absolute(width - CONTROL - space::S3, space::S3),
-        );
+        .child(body);
     ui.layer.push(
         col()
             .key("settings-scrim")

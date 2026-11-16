@@ -1,3 +1,4 @@
+use std::path::Path;
 use std::time::Duration;
 
 use rune::tok::{radius, space, type_};
@@ -18,6 +19,10 @@ use ngine_recorder::Cut;
 
 pub const TIMELINE_WIDTH: f32 = 564.0;
 const PANEL_WIDTH: f32 = 264.0;
+const NARROW_PANEL_WIDTH: f32 = 232.0;
+const NARROW_PANEL_BELOW: f32 = 720.0;
+const ROOMY_TRANSPORT: f32 = 600.0;
+const STEPS_FROM: f32 = 440.0;
 const SIDE_BY_SIDE_FROM: f32 = 600.0;
 const TIMELINE_HEIGHT: f32 = 40.0;
 const BAR: f32 = 6.0;
@@ -203,13 +208,14 @@ fn with_editor(change: impl Fn(&mut Editor) + 'static) -> impl Fn(&mut Ngine) + 
     }
 }
 
-fn transport(p: &Paint, editor: &Editor, narrow: bool) -> El {
+fn transport(p: &Paint, editor: &Editor, width: f32) -> El {
+    let narrow = width < ROOMY_TRANSPORT;
     let (play, glyph) = if editor.playing {
         ("Pause", &icons::PAUSE)
     } else {
         ("Play", &icons::PLAY)
     };
-    let key = |cap: &str| Some(vec![cap.to_owned()]);
+    let key = |cap: &str| (!narrow).then(|| vec![cap.to_owned()]);
     let mut bar = row()
         .key("transport")
         .gap(space::S1 + 2.0)
@@ -221,19 +227,23 @@ fn transport(p: &Paint, editor: &Editor, narrow: bool) -> El {
                 .look(Look::Plain)
                 .help(format!("{play} (Space)"))
                 .build(p, with_editor(Editor::toggle_play)),
-        )
-        .child(
-            Button::new("step-back", "One frame back")
-                .only_icon(&icons::STEP_BACK)
-                .look(Look::Quiet)
-                .build(p, with_editor(|editor| editor.step(-1))),
-        )
-        .child(
-            Button::new("step-forward", "One frame forward")
-                .only_icon(&icons::STEP_FORWARD)
-                .look(Look::Quiet)
-                .build(p, with_editor(|editor| editor.step(1))),
-        )
+        );
+    if width >= STEPS_FROM {
+        bar = bar
+            .child(
+                Button::new("step-back", "One frame back")
+                    .only_icon(&icons::STEP_BACK)
+                    .look(Look::Quiet)
+                    .build(p, with_editor(|editor| editor.step(-1))),
+            )
+            .child(
+                Button::new("step-forward", "One frame forward")
+                    .only_icon(&icons::STEP_FORWARD)
+                    .look(Look::Quiet)
+                    .build(p, with_editor(|editor| editor.step(1))),
+            );
+    }
+    bar = bar
         .child(
             text(format!(
                 "{} / {}",
@@ -354,11 +364,7 @@ fn sound(p: &Paint, editor: &Editor) -> Option<El> {
 
 fn precise_trim(p: &Paint, editor: &Editor) -> El {
     let precise = editor.cut == Cut::Exact;
-    let hint = if precise {
-        "Re-encodes the ends to cut on the frame"
-    } else {
-        "Cuts on keyframes and re-encodes nothing"
-    };
+    let hint = "Cuts on the exact frame by re-encoding the ends";
     toggle(
         p,
         "precise-trim",
@@ -396,10 +402,45 @@ fn progress(p: &Paint, done: f32) -> El {
 
 fn export_button(p: &Paint, label: &str) -> El {
     Button::new("export", label)
-        .icon(&icons::SCISSORS)
         .look(Look::Primary)
         .build(p, Ngine::export_clip)
         .w_full()
+}
+
+fn exported(p: &Paint, body: El, file: &Path, length: Duration) -> El {
+    let shown = file.to_owned();
+    let name = file
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    body.child(
+        text(format!("Saved {name} · {}", format::length(length)))
+            .key("export-done")
+            .role("status")
+            .font(type_::LABEL)
+            .color(p.good)
+            .wrap(),
+    )
+    .child(
+        row()
+            .key("export-after")
+            .gap(space::S2)
+            .flex_wrap()
+            .child(
+                Button::new(
+                    "export-show",
+                    &format!("Show in {}", platform::FILE_MANAGER),
+                )
+                .icon(&icons::FOLDER_OPEN)
+                .build(p, move |app| app.reveal(&shown))
+                .grow(1.0),
+            )
+            .child(
+                Button::new("export", "Export again")
+                    .build(p, Ngine::export_clip)
+                    .grow(1.0),
+            ),
+    )
 }
 
 fn export(p: &Paint, app: &Ngine, editor: &Editor) -> El {
@@ -422,7 +463,10 @@ fn export(p: &Paint, app: &Ngine, editor: &Editor) -> El {
         .pb(space::S3)
         .gap(space::S2)
         .child(name);
-    if !matches!(editor.exporting, Exporting::Done { .. }) {
+    if matches!(
+        editor.exporting,
+        Exporting::Idle | Exporting::Running { .. }
+    ) {
         body = body.child(caption(
             p,
             "export-words",
@@ -434,7 +478,13 @@ fn export(p: &Paint, app: &Ngine, editor: &Editor) -> El {
         ));
     }
     body = match &editor.exporting {
-        Exporting::Idle => body.child(export_button(p, "Export clip")),
+        Exporting::Idle => body.child(
+            Button::new("export", "Export clip")
+                .icon(&icons::SCISSORS)
+                .look(Look::Primary)
+                .build(p, Ngine::export_clip)
+                .w_full(),
+        ),
         Exporting::Running { done, .. } => body.child(progress(p, *done)).child(
             row()
                 .key("export-running")
@@ -451,43 +501,10 @@ fn export(p: &Paint, app: &Ngine, editor: &Editor) -> El {
                         .build(p, with_editor(Editor::cancel_export)),
                 ),
         ),
-        Exporting::Done { file, length } => {
-            let shown = file.clone();
-            let name = file
-                .file_name()
-                .map(|name| name.to_string_lossy().into_owned())
-                .unwrap_or_default();
-            body.child(
-                text(format!("Saved {name} · {}", format::length(*length)))
-                    .key("export-done")
-                    .role("status")
-                    .font(type_::LABEL)
-                    .color(p.good)
-                    .wrap(),
-            )
-            .child(
-                row()
-                    .key("export-after")
-                    .gap(space::S2)
-                    .child(
-                        Button::new(
-                            "export-show",
-                            &format!("Show in {}", platform::FILE_MANAGER),
-                        )
-                        .icon(&icons::FOLDER_OPEN)
-                        .build(p, move |app| app.reveal(&shown))
-                        .grow(1.0),
-                    )
-                    .child(
-                        Button::new("export", "Export again")
-                            .build(p, Ngine::export_clip)
-                            .grow(1.0),
-                    ),
-            )
-        }
+        Exporting::Done { file, length } => exported(p, body, file, *length),
         Exporting::Failed(error) => body
             .child(
-                text(format!("The clip could not be exported: {error}"))
+                text(format!("The clip could not be exported. {error}"))
                     .key("export-failed")
                     .role("alert")
                     .font(type_::LABEL)
@@ -660,8 +677,13 @@ pub fn view(ui: &mut Ui<'_>, timeline_width: f32) -> El {
     let keys_open = app.popup == Some(Popup::EditorKeys);
     let width = ui.content_width();
     let side_by_side = width >= SIDE_BY_SIDE_FROM && ui.window.0 >= ui.window.1;
+    let panel_width = if width < NARROW_PANEL_BELOW {
+        NARROW_PANEL_WIDTH
+    } else {
+        PANEL_WIDTH
+    };
     let video_width = if side_by_side {
-        width - PANEL_WIDTH - space::S6
+        width - panel_width - space::S6
     } else {
         width
     };
@@ -672,7 +694,7 @@ pub fn view(ui: &mut Ui<'_>, timeline_width: f32) -> El {
         .w(video_width)
         .gap(space::S3)
         .child(preview(&p, editor, video_width, video_height))
-        .child(transport(&p, editor, video_width < 600.0))
+        .child(transport(&p, editor, video_width))
         .child(
             col()
                 .key("timeline-block")
@@ -698,7 +720,7 @@ pub fn view(ui: &mut Ui<'_>, timeline_width: f32) -> El {
             .gap(space::S6)
             .items_start()
             .child(stage)
-            .child(panel.w(PANEL_WIDTH))
+            .child(panel.w(panel_width))
     } else {
         col()
             .key("editor-body")
@@ -751,7 +773,7 @@ pub fn watched(ui: &mut Ui<'_>, timeline_width: f32) -> Option<El> {
                     .gap(space::S2)
                     .center_y()
                     .child(
-                        transport(&p, editor, overlay_width < 600.0)
+                        transport(&p, editor, overlay_width - EXPAND - space::S2)
                             .grow(1.0)
                             .min_w(0.0),
                     )

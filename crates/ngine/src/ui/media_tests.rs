@@ -369,7 +369,7 @@ fn an_export_shows_its_progress_its_file_or_its_failure() {
     let mut failed = scene("editor-export-failed");
     assert_eq!(
         words(&failed, "export-failed"),
-        "The clip could not be exported: The disk is full"
+        "The clip could not be exported. The disk is full"
     );
     assert_eq!(words(&failed, "export"), "Try again");
     press(&mut failed, "editor-back");

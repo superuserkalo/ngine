@@ -317,3 +317,47 @@ fn the_settings_open_and_close_every_way_many_times() {
         }
     }
 }
+
+#[test]
+fn renaming_a_card_moves_nothing_in_the_grid() {
+    let tops = |name: &str| -> Vec<(String, f32)> {
+        live(&scene(name))
+            .into_iter()
+            .filter_map(|element| {
+                let key = element.key?;
+                (key.starts_with("item-") && key.ends_with("-details"))
+                    .then_some((key, element.rect[1]))
+            })
+            .collect()
+    };
+    let before = tops("library");
+    assert_ne!(before.len(), 0);
+    assert_eq!(before, tops("library-renaming"));
+}
+
+#[test]
+fn renaming_a_card_below_the_fold_scrolls_its_field_into_view() {
+    let mut app = demo::idle();
+    let (_, library) = demo::SCENES
+        .iter()
+        .find(|(scene, _)| *scene == "library")
+        .expect("a library scene");
+    library(&mut app);
+    let small = crate::app::SMALLEST_WINDOW;
+    let mut runtime = Runtime::new(app, view, small, Env::new(true, 2.0));
+    runtime.on_key = Some(on_key);
+    runtime.frame(0.0);
+    runtime.settle_all();
+    runtime.update(|app, _| app.open_item_menu(3, Some((200.0, 200.0))));
+    runtime.frame(FRAME);
+    click(&mut runtime, "menu-rename");
+    runtime.settle_all();
+    let field = element(&runtime, crate::app::RENAME_BOX).expect("the rename field");
+    let [_, top, _, height] = field.visible;
+    assert!(
+        height >= field.rect[3] - 0.5,
+        "the field is cut: {:?}",
+        field.visible
+    );
+    assert!(top + height <= small.1, "the field is below the window");
+}

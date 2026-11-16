@@ -23,6 +23,8 @@ const SOURCES_HEIGHT: f32 = 420.0;
 const AUDIO_LABEL: f32 = 104.0;
 const VOLUME_WIDTH: f32 = 96.0;
 const METER_WIDTH: f32 = 120.0;
+const SHORT_METER_WIDTH: f32 = 64.0;
+const SHORT_METERS_BELOW: f32 = 700.0;
 const DEVICE_WIDTH: f32 = 220.0;
 const LENGTH_WIDTH: f32 = 112.0;
 const RECENT_COUNT: usize = 3;
@@ -138,7 +140,7 @@ fn source(ui: &mut Ui<'_>) -> El {
         .label(format!("Source: {name}. {action}"))
         .expanded(open)
         .min_h(SOURCE_TILE + 2.0 * space::S3)
-        .px(space::S3)
+        .px(space::S6 - 4.0)
         .gap(space::S3)
         .center_y()
         .radius(radius::LG)
@@ -240,9 +242,7 @@ fn sources_menu(ui: &mut Ui<'_>) {
     let p = ui.p;
     let mut items = screen_items(&p, ui.app);
     items.extend(app_items(&p, ui.app));
-    if !items.is_empty() {
-        items.push(menu_rule(&p, "sources-rule"));
-    }
+
     let listed = col()
         .key("sources-list")
         .items_stretch()
@@ -257,6 +257,7 @@ fn sources_menu(ui: &mut Ui<'_>) {
         "Sources",
         vec![
             listed,
+            menu_rule(&p, "sources-rule"),
             MenuItem::new("source-picker", "Choose with the system picker…")
                 .icon(&icons::MOUSE_POINTER_CLICK)
                 .build(&p, "menuitem", |app, _| app.pick()),
@@ -390,7 +391,7 @@ pub fn volume(
 
 /// The microphone menu: the system's default first, which follows the
 /// system when it changes, then every microphone it offers.
-pub fn microphone_select(ui: &mut Ui<'_>, key: &str, width: f32) -> El {
+pub fn microphone_select(ui: &mut Ui<'_>, key: &str, width: f32, align: Align) -> El {
     let p = ui.p;
     let app = ui.app;
     let default_name = app
@@ -422,6 +423,7 @@ pub fn microphone_select(ui: &mut Ui<'_>, key: &str, width: f32) -> El {
         options,
         selected,
         width,
+        align,
     };
     select(&p, app, &mut ui.layer, chosen, move |app, index| {
         let device = index.checked_sub(1).and_then(|at| ids.get(at)).cloned();
@@ -439,7 +441,7 @@ pub fn system_sound_words(sound: &SystemSound) -> String {
 
 /// The system sound menu: all of it, or what the system can separate: one
 /// app's sound, or one output device's.
-pub fn system_sound_select(ui: &mut Ui<'_>, key: &str, width: f32) -> El {
+pub fn system_sound_select(ui: &mut Ui<'_>, key: &str, width: f32, align: Align) -> El {
     let p = ui.p;
     let app = ui.app;
     let mut choices = vec![SystemSound::Everything];
@@ -463,6 +465,7 @@ pub fn system_sound_select(ui: &mut Ui<'_>, key: &str, width: f32) -> El {
         options,
         selected,
         width,
+        align,
     };
     select(&p, app, &mut ui.layer, chosen, move |app, index| {
         if let Some(sound) = choices.get(index).cloned() {
@@ -482,7 +485,7 @@ struct AudioRow {
     set_volume: fn(&mut Settings, u8),
 }
 
-fn audio_row(p: &Paint, narrow: bool, audio: AudioRow) -> El {
+fn audio_row(p: &Paint, narrow: bool, meter_width: f32, audio: AudioRow) -> El {
     let AudioRow {
         key,
         label,
@@ -498,7 +501,7 @@ fn audio_row(p: &Paint, narrow: bool, audio: AudioRow) -> El {
     let mut line = row()
         .key(key)
         .min_h(48.0)
-        .pl(space::S3 + 2.0)
+        .pl(space::S3 + space::S1)
         .pr(space::S3)
         .gap(space::S3)
         .center_y()
@@ -526,7 +529,7 @@ fn audio_row(p: &Paint, narrow: bool, audio: AudioRow) -> El {
     if let Some(level) = level.filter(|_| on) {
         line = line.child(
             el().key(format!("{key}-meter-box"))
-                .w(METER_WIDTH)
+                .w(meter_width)
                 .child(meter(
                     p,
                     &format!("{key}-meter"),
@@ -559,19 +562,33 @@ fn audio_row(p: &Paint, narrow: bool, audio: AudioRow) -> El {
 
 fn audio(ui: &mut Ui<'_>) -> El {
     let narrow = ui.content_width() < 600.0;
+    let metered = ui.app.status.levels.is_some();
+    let meter_width = if ui.content_width() < SHORT_METERS_BELOW {
+        SHORT_METER_WIDTH
+    } else {
+        METER_WIDTH
+    };
     let beside = 2.0 * space::S3
         + 2.0
         + 16.0
         + AUDIO_LABEL
-        + METER_WIDTH
+        + if metered {
+            meter_width + space::S3
+        } else {
+            0.0
+        }
         + 36.0
-        + 5.0 * space::S3
-        + if narrow { 0.0 } else { VOLUME_WIDTH + 48.0 };
+        + 4.0 * space::S3
+        + if narrow {
+            0.0
+        } else {
+            VOLUME_WIDTH + space::S2 + 40.0 + space::S3
+        };
     let device_width = (ui.content_width() - beside).clamp(96.0, DEVICE_WIDTH);
-    let system_device =
-        system_sound_select(ui, "capture-system-sound", device_width).fill(Color::TRANSPARENT);
-    let microphone_device =
-        microphone_select(ui, "capture-microphone", device_width).fill(Color::TRANSPARENT);
+    let system_device = system_sound_select(ui, "capture-system-sound", device_width, Align::Start)
+        .fill(Color::TRANSPARENT);
+    let microphone_device = microphone_select(ui, "capture-microphone", device_width, Align::Start)
+        .fill(Color::TRANSPARENT);
     let p = ui.p;
     let app = ui.app;
     let audio = app.settings.audio;
@@ -581,6 +598,7 @@ fn audio(ui: &mut Ui<'_>) -> El {
         audio_row(
             &p,
             narrow,
+            meter_width,
             AudioRow {
                 key: "audio-system",
                 label: "System sound",
@@ -595,6 +613,7 @@ fn audio(ui: &mut Ui<'_>) -> El {
         audio_row(
             &p,
             narrow,
+            meter_width,
             AudioRow {
                 key: "audio-microphone",
                 label: "Microphone",
@@ -743,6 +762,7 @@ pub fn length_select(ui: &mut Ui<'_>, key: &str, width: f32) -> El {
             .iter()
             .position(|length| *length == app.settings.replay.length_seconds),
         width,
+        align: Align::End,
     };
     select(&p, app, &mut ui.layer, chosen, |app, index| {
         if let Some(length) = REPLAY_LENGTHS.get(index) {

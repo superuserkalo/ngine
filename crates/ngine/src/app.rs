@@ -46,6 +46,7 @@ const NOTICE_SECONDS: f64 = 4.0;
 const TOAST_SECONDS: f64 = 3.0;
 const SAVE_DELAY_SECONDS: f64 = 0.5;
 const BYTES_PER_MB: u64 = 1_000_000;
+pub const RENAME_BOX: &str = "rename-box";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Screen {
@@ -765,7 +766,12 @@ pub fn on_key(app: &mut Ngine, event: &KeyEvent, tx: &mut Tx) -> bool {
         }
         _ if app.screen == Screen::Library && tx.focused().is_none_or(|key| key != "rename") => {
             let focused = tx.focused().map(str::to_owned);
-            return app.library_key(event, focused.as_deref());
+            let renaming = app.renaming.is_some();
+            let handled = app.library_key(event, focused.as_deref());
+            if !renaming && app.renaming.is_some() {
+                tx.scroll_into_view(RENAME_BOX);
+            }
+            return handled;
         }
         _ => return false,
     }

@@ -1096,6 +1096,7 @@ pub struct Select<'a> {
     pub options: Vec<Option_>,
     pub selected: Option<usize>,
     pub width: f32,
+    pub align: Align,
 }
 
 /// A button that shows the current choice and opens the list of the others.
@@ -1112,6 +1113,7 @@ pub fn select(
         options,
         selected,
         width,
+        align,
     } = select;
     let open = app.popup == Some(Popup::Choices(key.to_owned()));
     let current = selected
@@ -1189,7 +1191,7 @@ pub fn select(
             key,
             anchor: key,
             side: Side::Bottom,
-            align: Align::End,
+            align,
         };
         float(layer, &floating, list);
     }

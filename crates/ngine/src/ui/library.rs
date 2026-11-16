@@ -15,13 +15,13 @@ use crate::platform;
 
 const SMALLEST_CARD: f32 = 200.0;
 const GRID_GAP: f32 = 12.0;
-const FILTER_WIDTH: f32 = 84.0;
-const NARROW_FILTER_WIDTH: f32 = 76.0;
+const FILTER_WIDTH: f32 = 96.0;
+const NARROW_FILTER_WIDTH: f32 = 80.0;
 const SORT_WIDTH: f32 = 136.0;
 const NARROW_SORT_WIDTH: f32 = 120.0;
 const NARROW_TOOLBAR_BELOW: f32 = 720.0;
 const SEARCH_WIDTH: f32 = 96.0;
-const NAME_HEIGHT: f32 = 24.0;
+const NAME_HEIGHT: f32 = 20.0;
 
 pub const UNREADABLE: &str = "This file cannot be read as a video";
 
@@ -86,6 +86,7 @@ fn toolbar(ui: &mut Ui<'_>) -> (El, f32) {
             .collect(),
         selected: Sort::ALL.iter().position(|one| *one == app.browse.sort),
         width: sort_width,
+        align: Align::End,
     };
     let sort = select(&p, app, &mut ui.layer, sort, |app, index| {
         if let Some(sort) = Sort::ALL.get(index) {
@@ -152,23 +153,30 @@ fn badge(key: &str, words: String) -> El {
 
 fn name_line(p: &Paint, app: &Ngine, key: &str, entry: &Entry) -> El {
     if app.renaming.as_ref() != Some(&entry.item.path) {
-        return text(entry.item.name.clone())
-            .key(format!("{key}-name"))
-            .font(type_::LABEL)
-            .color(p.t.text)
-            .truncate()
-            .a11y_hidden();
+        return row()
+            .key(format!("{key}-name-line"))
+            .h(NAME_HEIGHT)
+            .center_y()
+            .child(
+                text(entry.item.name.clone())
+                    .key(format!("{key}-name"))
+                    .font(type_::LABEL)
+                    .color(p.t.text)
+                    .truncate()
+                    .min_w(0.0)
+                    .a11y_hidden(),
+            );
     }
-    el().key("rename-box")
+    el().key(crate::app::RENAME_BOX)
         .w_full()
         .h(NAME_HEIGHT)
-        .px(space::S2)
+        .px(space::S1 + 2.0)
         .radius(radius::SM)
         .fill(p.t.control_track)
         .border(1.0, p.accent)
         .center_y()
         .child(
-            text_input(&app.rename, type_::BODY)
+            text_input(&app.rename, type_::LABEL)
                 .key("rename")
                 .label("New name")
                 .single_line()
@@ -342,7 +350,10 @@ fn item_menu(ui: &mut Ui<'_>) {
         MenuItem::new("menu-rename", "Rename")
             .icon(&icons::PENCIL)
             .detail("F2")
-            .build(&p, "menuitem", move |app, _| app.start_rename(index)),
+            .build(&p, "menuitem", move |app, tx| {
+                app.start_rename(index);
+                tx.scroll_into_view(crate::app::RENAME_BOX);
+            }),
         MenuItem::new("menu-show", &format!("Show in {}", platform::FILE_MANAGER))
             .icon(&icons::FOLDER_OPEN)
             .build(&p, "menuitem", move |app, _| {

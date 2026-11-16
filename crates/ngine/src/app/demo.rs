@@ -221,9 +221,9 @@ pub const SCENES: &[Scene] = &[
     ("disk-full", disk_full),
     ("settings-reset", settings_reset),
     ("settings-video", |app| section(app, Section::Video)),
-    ("settings-codec-open", |app| {
+    ("settings-frame-rate-open", |app| {
         section(app, Section::Video);
-        app.open_popup(Popup::Choices("codec".into()));
+        app.open_popup(Popup::Choices("settings-frame-rate-presets".into()));
     }),
     ("settings-audio", |app| section(app, Section::Audio)),
     ("settings-replay", |app| section(app, Section::Replay)),

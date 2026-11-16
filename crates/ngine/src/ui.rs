@@ -80,7 +80,7 @@ impl Ui<'_> {
 
     pub fn main_width(&self) -> f32 {
         let sidebar = if self.narrow() {
-            RAIL_WIDTH
+            self.rail_width()
         } else {
             SIDEBAR_WIDTH
         };
@@ -89,6 +89,10 @@ impl Ui<'_> {
 
     pub fn content_width(&self) -> f32 {
         (self.main_width() - 2.0 * PAGE_PADDING).clamp(1.0, WIDEST_CONTENT)
+    }
+
+    fn rail_width(&self) -> f32 {
+        RAIL_WIDTH.max(self.controls.0 + space::S2)
     }
 
     fn sidebar_width(&self) -> f32 {
@@ -219,7 +223,7 @@ fn nav_item(ui: &Ui<'_>, screen: Screen, key: &str, label: &str, glyph: &'static
                     .size(DOT, DOT)
                     .radius(DOT / 2.0)
                     .fill(colour)
-                    .absolute(RAIL_WIDTH / 2.0 + 4.0, 7.0)
+                    .absolute(ui.rail_width() / 2.0 - space::S2 + 12.0, 7.0)
                     .a11y_hidden(),
             );
         }
@@ -328,7 +332,11 @@ fn sidebar(ui: &Ui<'_>) -> El {
         .key("sidebar")
         .role("navigation")
         .label("Sections")
-        .w(if narrow { RAIL_WIDTH } else { SIDEBAR_WIDTH })
+        .w(if narrow {
+            ui.rail_width()
+        } else {
+            SIDEBAR_WIDTH
+        })
         .h_full()
         .px(space::S2)
         .pb(space::S3)

@@ -52,9 +52,11 @@ pub fn print_to_the_terminal_that_started_ngine() {
 }
 
 pub use os::{
-    FILE_MANAGER, LISTS_CAPTURE_TARGETS, SAMPLE_BUFFER_FOLDER, SAMPLE_OUTPUT_FOLDER, TRASH,
-    VIDEOS_FOLDER,
+    FILE_MANAGER, LISTS_CAPTURE_TARGETS, SAMPLE_BUFFER_FOLDER, SAMPLE_OUTPUT_FOLDER,
+    SYSTEM_SETTINGS, TRASH, VIDEOS_FOLDER,
 };
+
+use crate::engine::Permission;
 
 pub const BACKGROUND_FLAG: &str = "--background";
 
@@ -77,15 +79,40 @@ pub struct Folders<'a> {
     pub config: &'a Path,
 }
 
-/// Shows a file in the system's file manager.
-pub fn reveal(file: &Path) -> io::Result<()> {
-    let mut shown = os::reveal(file).spawn()?;
+fn start(mut command: std::process::Command) -> io::Result<()> {
+    let mut started = command.spawn()?;
     std::thread::Builder::new()
-        .name("ngine-reveal".to_owned())
+        .name("ngine-opened".to_owned())
         .spawn(move || {
-            let _file_manager_closed = shown.wait();
+            let _opened_program_closed = started.wait();
         })
         .map(drop)
+}
+
+/// Shows a file in the system's file manager.
+pub fn reveal(file: &Path) -> io::Result<()> {
+    start(os::reveal(file))
+}
+
+/// Opens a folder in the system's file manager.
+pub fn open_folder(folder: &Path) -> io::Result<()> {
+    start(os::open_folder(folder))
+}
+
+/// Whether this system has a settings page where `permission` is granted.
+pub fn has_privacy_settings(permission: Permission) -> bool {
+    os::privacy_settings(permission).is_some()
+}
+
+/// Opens the system's settings page where `permission` is granted.
+pub fn open_privacy_settings(permission: Permission) -> io::Result<()> {
+    match os::privacy_settings(permission) {
+        Some(command) => start(command),
+        None => Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "this system has no page for it",
+        )),
+    }
 }
 
 /// The file that makes the operating system start ngine when the user logs

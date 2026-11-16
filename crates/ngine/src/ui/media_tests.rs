@@ -117,21 +117,21 @@ fn an_empty_library_says_where_recordings_will_appear() {
 #[test]
 fn the_library_lists_every_video_with_its_length_size_date_and_actions() {
     let runtime = scene("library");
-    assert_eq!(words(&runtime, "library-total"), "5 videos  ·  2.7 GB");
+    assert_eq!(words(&runtime, "library-total"), "5 videos · 2.7 GB");
     assert_eq!(
         words(&runtime, "item-0-name"),
         "Recording 2026-11-16 14.03.22"
     );
     assert_eq!(
         words(&runtime, "item-0-details"),
-        "4 min 12 s  ·  310 MB  ·  16 Nov 2026, 14:03  ·  2 markers"
+        "16 Nov 2026, 14:03 · 310 MB"
     );
-    assert_eq!(
-        words(&runtime, "item-2-details"),
-        "14 s  ·  17 MB  ·  15 Nov 2026, 22:18"
-    );
+    assert_eq!(words(&runtime, "item-0-length"), "04:12");
+    assert_eq!(words(&runtime, "item-0-markers"), "2 markers");
+    assert_eq!(words(&runtime, "item-1-kind"), "Replay");
+    assert_eq!(words(&runtime, "item-2-kind"), "Clip");
     for index in 0..5 {
-        for part in ["thumbnail", "open", "rename", "show", "trash"] {
+        for part in ["thumbnail", "more", "kind"] {
             let key = format!("item-{index}-{part}");
             assert!(shows(&runtime, &key), "{key}");
         }
@@ -178,14 +178,15 @@ fn a_video_is_renamed_in_place_and_a_taken_name_is_refused() {
     two_videos(&folder);
     let mut runtime = library_on_disk(&folder);
     assert_eq!(words(&runtime, "item-0-name"), "First");
-    assert!(words(&runtime, "item-0-details").starts_with("Cannot be read as a video"));
-    assert!(element(&runtime, "item-0-open").opacity < 1.0);
+    assert!(shows(&runtime, "item-0-unreadable"));
+    press(&mut runtime, "item-0-more");
+    assert!(element(&runtime, "menu-open").opacity < 1.0);
 
-    press(&mut runtime, "item-0-rename");
+    press(&mut runtime, "menu-rename");
     assert!(shows(&runtime, "rename"));
     assert!(!shows(&runtime, "item-0-name"));
     letter(&mut runtime, "Second");
-    press(&mut runtime, "rename-save");
+    key(&mut runtime, Key::Enter, false);
     assert_eq!(
         words(&runtime, "notice"),
         "Another file already has this name"
@@ -193,10 +194,11 @@ fn a_video_is_renamed_in_place_and_a_taken_name_is_refused() {
     assert!(shows(&runtime, "rename"));
     assert!(folder.join("First.mp4").exists());
 
-    press(&mut runtime, "rename-cancel");
+    key(&mut runtime, Key::Escape, false);
     assert_eq!(words(&runtime, "item-0-name"), "First");
 
-    press(&mut runtime, "item-0-rename");
+    runtime.update(|app, _| app.start_rename(0));
+    settle(&mut runtime);
     letter(&mut runtime, "Boss fight");
     key(&mut runtime, Key::Enter, false);
     assert_eq!(words(&runtime, "item-0-name"), "Boss fight");
@@ -215,10 +217,12 @@ fn moving_a_video_to_the_trash_takes_it_off_the_list() {
     two_videos(&folder);
     let mut runtime = library_on_disk(&folder);
 
-    press(&mut runtime, "item-0-trash");
+    press(&mut runtime, "item-0-more");
+    press(&mut runtime, "menu-trash");
+    press(&mut runtime, "trash-confirm");
     assert_eq!(words(&runtime, "item-0-name"), "Second");
     assert!(!shows(&runtime, "item-1"));
-    assert!(words(&runtime, "notice").starts_with("Moved to the"));
+    assert!(words(&runtime, "notice").starts_with("1 video moved to the"));
     assert!(folder.join("First.binned").exists());
     assert!(folder.join("Second.mp4").exists());
     std::fs::remove_dir_all(&folder).expect("temp folder removed");
@@ -240,15 +244,10 @@ fn the_editor_shows_the_preview_the_clip_and_the_markers_at_their_times() {
         words(&runtime, "editor-name"),
         "Recording 2026-11-16 14.03.22"
     );
-    assert_eq!(
-        words(&runtime, "editor-details"),
-        "2 min 5 s  ·  2560 × 1440"
-    );
+    assert_eq!(words(&runtime, "editor-details"), "2 min 5 s · 2560 × 1440");
     assert_eq!(words(&runtime, "position"), "00:31.0 / 02:05.0");
-    assert_eq!(
-        words(&runtime, "clip-length"),
-        "Clip 00:20.0 to 01:02.0  ·  42 s"
-    );
+    assert_eq!(words(&runtime, "clip-length"), "Clip 42 s");
+    assert_eq!(words(&runtime, "clip-points"), "00:20.0 – 01:02.0");
     assert_eq!(words(&runtime, "play"), "Play");
     assert!(shows(&runtime, "preview"));
     for (index, at) in [12.0, 33.0, 80.0].into_iter().enumerate() {
@@ -268,8 +267,8 @@ fn the_editor_shows_the_preview_the_clip_and_the_markers_at_their_times() {
         "clip-system-on",
         "clip-microphone-volume",
         "clip-microphone-on",
-        "cut.fast",
-        "cut.exact",
+        "cut-fast",
+        "cut-exact",
         "export",
     ] {
         assert!(shows(&runtime, key), "{key}");
@@ -288,10 +287,7 @@ fn the_keyboard_plays_steps_and_sets_the_in_and_out_points() {
     key(&mut runtime, Key::Left, true);
     letter(&mut runtime, "o");
     assert_eq!(editor(&runtime).end, seconds(32));
-    assert_eq!(
-        words(&runtime, "clip-length"),
-        "Clip 00:31.0 to 00:32.0  ·  1 s"
-    );
+    assert_eq!(words(&runtime, "clip-length"), "Clip 1 s");
 
     key(&mut runtime, Key::Right, false);
     let one_frame = editor(&runtime).position.saturating_sub(seconds(32));
@@ -343,27 +339,22 @@ fn each_sound_source_can_be_muted_and_the_cut_chosen() {
     let mut runtime = scene("editor");
     press(&mut runtime, "clip-microphone-on");
     assert!(!editor(&runtime).microphone.on);
-    assert_eq!(
-        words(&runtime, "clip-microphone-hint"),
-        "Left out of the clip"
-    );
     let mix = editor(&runtime).mix();
     assert!(mix.microphone.abs() < f32::EPSILON);
     assert!((mix.system - 1.0).abs() < f32::EPSILON);
 
-    press(&mut runtime, "cut.exact");
+    press(&mut runtime, "cut-exact");
     assert_eq!(editor(&runtime).cut, Cut::Exact);
-    assert!(words(&runtime, "cut-row-hint").starts_with("Starts and ends on the chosen frames"));
 
     let fixed = scene("editor-mix-only");
-    assert!(shows(&fixed, "clip-sound-fixed"));
+    assert!(!shows(&fixed, "clip-sound"));
     assert!(!shows(&fixed, "clip-system-volume"));
 }
 
 #[test]
 fn an_export_shows_its_progress_its_file_or_its_failure() {
     let running = scene("editor-exporting");
-    assert_eq!(words(&running, "export-percent"), "Exporting 42%");
+    assert_eq!(words(&running, "export-percent"), "Exporting… 42 %");
     assert!(shows(&running, "export-progress"));
     assert!(shows(&running, "export-cancel"));
     assert!(!shows(&running, "export"));
@@ -371,7 +362,7 @@ fn an_export_shows_its_progress_its_file_or_its_failure() {
     let done = scene("editor-exported");
     assert_eq!(
         words(&done, "export-done"),
-        "Saved Clip 2026-11-16 14.09.51.mp4  ·  42 s"
+        "Saved Clip 2026-11-16 14.09.51.mp4 · 42 s"
     );
     assert!(shows(&done, "export-show"));
     assert_eq!(words(&done, "export"), "Export again");
@@ -382,8 +373,8 @@ fn an_export_shows_its_progress_its_file_or_its_failure() {
         "The clip could not be exported: The disk is full"
     );
     assert_eq!(words(&failed, "export"), "Try again");
-    press(&mut failed, "editor-close");
-    assert!(shows(&failed, "editor-empty"));
+    press(&mut failed, "editor-back");
+    assert!(shows(&failed, "library"));
     assert!(matches!(
         Editor::sample(Path::new("x.mp4")).exporting,
         Exporting::Idle

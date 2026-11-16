@@ -1,32 +1,44 @@
 use std::time::Duration;
 
 use rune::tok::{radius, space, type_};
-use rune::{Color, Drag, El, Phase, SurfaceFit, col, el, row, spacer, text};
+use rune::{Align, Color, Drag, El, Phase, Side, SurfaceFit, col, el, row, spacer, text};
 
 use super::widgets::{
-    Choice, HEADING, Look, Paint, Segments, Stops, button, caption, section, segmented, setting,
-    slider, switch,
+    Button, Field, Floating, HEADING, Look, NUMBERS, Paint, STRONG, Stops, caption, empty_state,
+    field, float, keycaps, lone_switch, section, slider, surface,
 };
-use crate::app::{Ngine, Screen};
-use crate::editor::{Editor, Exporting, LOUDEST_PERCENT, PERCENT_STEP, Source};
+use super::{Ui, icons, page, sheet};
+use crate::app::{Ngine, Popup, Screen};
+use crate::editor::{Editor, Exporting, FULL_VOLUME, LOUDEST_PERCENT, PERCENT_STEP, Source};
 use crate::format;
 use crate::platform;
 use ngine_recorder::Cut;
 
 pub const TIMELINE_WIDTH: f32 = 564.0;
-const EMPTY_HEIGHT: f32 = 420.0;
-const PREVIEW_HEIGHT: f32 = 270.0;
-const TIMELINE_HEIGHT: f32 = 44.0;
-const BAR: f32 = 8.0;
-const HANDLE: (f32, f32) = (10.0, 30.0);
-const PLAYHEAD: (f32, f32) = (2.0, 40.0);
-const MARKER: (f32, f32) = (3.0, 12.0);
-const GRAB: f32 = 9.0;
-const PROGRESS: (f32, f32) = (220.0, 6.0);
-const CUT_WIDTH: f32 = 72.0;
+const PANEL_WIDTH: f32 = 264.0;
+const SIDE_BY_SIDE_FROM: f32 = 600.0;
+const TIMELINE_HEIGHT: f32 = 40.0;
+const BAR: f32 = 6.0;
+const HANDLE: (f32, f32) = (6.0, 28.0);
+const PLAYHEAD: (f32, f32) = (2.0, 36.0);
+const MARKER: (f32, f32) = (2.0, 10.0);
+const GRAB: f32 = 10.0;
+const PROGRESS_HEIGHT: f32 = 6.0;
+const PREVIEW_VOLUME_WIDTH: f32 = 72.0;
+const LEVEL_WIDTH: f32 = 140.0;
 const SCRUB: f32 = 0.0;
 const MOVE_IN: f32 = 1.0;
 const MOVE_OUT: f32 = 2.0;
+
+pub const SHORTCUTS: [(&[&str], &str); 7] = [
+    (&["Space"], "Play or pause"),
+    (&["←", "→"], "One frame back or forward"),
+    (&["⇧", "←"], "One second back, with → forward"),
+    (&["I"], "Set the start of the clip"),
+    (&["O"], "Set the end of the clip"),
+    (&["Esc"], "Back to the library"),
+    (&["?"], "Show these keys"),
+];
 
 fn fraction(editor: &Editor, at: Duration) -> f32 {
     let length = editor.length().as_secs_f32();
@@ -76,6 +88,7 @@ fn mark(key: String, size: (f32, f32), centre: f32, colour: Color) -> El {
 fn timeline(p: &Paint, editor: &Editor, width: f32) -> El {
     let at = |time: Duration| fraction(editor, time) * width;
     let (from, to) = (at(editor.start), at(editor.end));
+    let bar_top = (TIMELINE_HEIGHT - BAR) / 2.0;
     let mut line = el()
         .key("timeline")
         .role("slider")
@@ -86,6 +99,7 @@ fn timeline(p: &Paint, editor: &Editor, width: f32) -> El {
             editor.length().as_secs_f64(),
         )
         .a11y_value(format::position(editor.position))
+        .help("Drag to move through the video. Drag the ends of the clip to trim it.")
         .focusable(true)
         .w_full()
         .h(TIMELINE_HEIGHT)
@@ -103,7 +117,7 @@ fn timeline(p: &Paint, editor: &Editor, width: f32) -> El {
         .child(
             el().key("timeline-track")
                 .size(width, BAR)
-                .absolute(0.0, (TIMELINE_HEIGHT - BAR) / 2.0)
+                .absolute(0.0, bar_top)
                 .radius(BAR / 2.0)
                 .fill(p.t.control_off)
                 .a11y_hidden(),
@@ -111,14 +125,14 @@ fn timeline(p: &Paint, editor: &Editor, width: f32) -> El {
         .child(
             el().key("timeline-clip")
                 .size((to - from).max(1.0), BAR)
-                .absolute(from, (TIMELINE_HEIGHT - BAR) / 2.0)
-                .fill(p.accent.alpha(0.6))
+                .absolute(from, bar_top)
+                .fill(p.accent.alpha(0.55))
                 .a11y_hidden(),
         );
     for (index, marker) in editor.markers.iter().enumerate() {
         line = line.child(
             mark(format!("marker-{index}"), MARKER, at(*marker), p.warning)
-                .absolute(at(*marker) - MARKER.0 / 2.0, 2.0),
+                .absolute(at(*marker) - MARKER.0 / 2.0, 0.0),
         );
     }
     line.child(mark("in-point".into(), HANDLE, from, p.accent))
@@ -131,17 +145,69 @@ fn timeline(p: &Paint, editor: &Editor, width: f32) -> El {
         ))
 }
 
-fn transport(p: &Paint, editor: &Editor) -> El {
-    let play = if editor.playing { "Pause" } else { "Play" };
+fn range(p: &Paint, editor: &Editor) -> El {
     row()
-        .key("transport")
+        .key("clip-range")
         .gap(space::S2)
         .center_y()
-        .child(button(p, "play", play, Look::Primary, true, |app| {
-            if let Some(editor) = &mut app.editor {
-                editor.toggle_play();
-            }
-        }))
+        .child(
+            text(format!(
+                "{} – {}",
+                format::position(editor.start),
+                format::position(editor.end)
+            ))
+            .key("clip-points")
+            .font(NUMBERS)
+            .color(p.t.text_secondary),
+        )
+        .child(spacer())
+        .child(
+            text(format!("Clip {}", format::length(editor.clip_length())))
+                .key("clip-length")
+                .font(NUMBERS)
+                .color(p.accent),
+        )
+}
+
+fn with_editor(change: impl Fn(&mut Editor) + 'static) -> impl Fn(&mut Ngine) + 'static {
+    move |app: &mut Ngine| {
+        if let Some(editor) = &mut app.editor {
+            change(editor);
+        }
+    }
+}
+
+fn transport(p: &Paint, editor: &Editor, narrow: bool) -> El {
+    let (play, glyph) = if editor.playing {
+        ("Pause", &icons::PAUSE)
+    } else {
+        ("Play", &icons::PLAY)
+    };
+    let key = |cap: &str| Some(vec![cap.to_owned()]);
+    let mut bar = row()
+        .key("transport")
+        .gap(space::S1 + 2.0)
+        .flex_wrap()
+        .center_y()
+        .child(
+            Button::new("play", play)
+                .only_icon(glyph)
+                .look(Look::Primary)
+                .help(format!("{play} (Space)"))
+                .build(p, with_editor(Editor::toggle_play)),
+        )
+        .child(
+            Button::new("step-back", "One frame back")
+                .only_icon(&icons::STEP_BACK)
+                .look(Look::Quiet)
+                .build(p, with_editor(|editor| editor.step(-1))),
+        )
+        .child(
+            Button::new("step-forward", "One frame forward")
+                .only_icon(&icons::STEP_FORWARD)
+                .look(Look::Quiet)
+                .build(p, with_editor(|editor| editor.step(1))),
+        )
         .child(
             text(format!(
                 "{} / {}",
@@ -149,31 +215,48 @@ fn transport(p: &Paint, editor: &Editor) -> El {
                 format::position(editor.length())
             ))
             .key("position")
-            .font(type_::LABEL.features("tnum"))
+            .font(NUMBERS)
             .color(p.t.text)
-            .ml(space::S2),
+            .ml(space::S1),
         )
         .child(spacer())
-        .child(caption(
-            p,
-            "clip-length",
-            format!(
-                "Clip {} to {}  ·  {}",
-                format::position(editor.start),
-                format::position(editor.end),
-                format::length(editor.clip_length())
-            ),
-        ))
-        .child(button(p, "set-in", "Set in", Look::Plain, true, |app| {
-            if let Some(editor) = &mut app.editor {
-                editor.set_start(editor.position);
-            }
-        }))
-        .child(button(p, "set-out", "Set out", Look::Plain, true, |app| {
-            if let Some(editor) = &mut app.editor {
-                editor.set_end(editor.position);
-            }
-        }))
+        .child(
+            Button::new("set-in", "Set start")
+                .keys(key("I"))
+                .build(p, with_editor(|editor| editor.set_start(editor.position))),
+        )
+        .child(
+            Button::new("set-out", "Set end")
+                .keys(key("O"))
+                .build(p, with_editor(|editor| editor.set_end(editor.position))),
+        );
+    if !narrow {
+        let stops = Stops {
+            key: "preview-volume",
+            label: "Preview volume",
+            index: u16::from(editor.volume() / 10),
+            count: u16::from(FULL_VOLUME / 10) + 1,
+            value: format!("{} %", editor.volume()),
+            width: PREVIEW_VOLUME_WIDTH,
+        };
+        bar = bar
+            .child(
+                el().key("preview-volume-icon")
+                    .ml(space::S2)
+                    .child(super::widgets::glyph(
+                        p,
+                        "preview-volume-glyph",
+                        &icons::VOLUME_2,
+                        15.0,
+                    )),
+            )
+            .child(slider(p, stops, |app, stop| {
+                if let Some(editor) = &mut app.editor {
+                    editor.set_volume(u8::try_from(stop * 10).unwrap_or(FULL_VOLUME));
+                }
+            }));
+    }
+    bar
 }
 
 fn source_row(p: &Paint, editor: &Editor, source: Source) -> El {
@@ -184,10 +267,11 @@ fn source_row(p: &Paint, editor: &Editor, source: Source) -> El {
     let level = editor.level(source);
     let stops = Stops {
         key: &format!("{key}-volume"),
-        label: &format!("{label} volume"),
+        label: &format!("{label} level in the clip"),
         index: level.percent / PERCENT_STEP,
         count: LOUDEST_PERCENT / PERCENT_STEP + 1,
-        value: format!("{}%", level.percent),
+        value: format!("{} %", level.percent),
+        width: LEVEL_WIDTH,
     };
     let volume = slider(p, stops, move |app, stop| {
         if let Some(editor) = &mut app.editor {
@@ -195,72 +279,111 @@ fn source_row(p: &Paint, editor: &Editor, source: Source) -> El {
         }
     })
     .opacity(if level.on { 1.0 } else { 0.4 });
-    let mute = row()
-        .key(format!("{key}-on"))
-        .role("switch")
-        .label(label)
-        .checked(level.on)
-        .focusable(true)
-        .on_press(move |app: &mut Ngine| {
-            if let Some(editor) = &mut app.editor {
-                editor.set_level(source, |level| level.on = !level.on);
-            }
-        })
-        .child(switch(p, &format!("{key}-switch"), level.on));
-    let hint = (!level.on).then(|| "Left out of the clip".to_owned());
-    let controls = row()
-        .key(format!("{key}-controls"))
-        .gap(space::S3)
-        .center_y()
+    col()
+        .key(key)
+        .px(space::S3)
+        .py(space::S2)
+        .gap(space::S2)
+        .child(
+            row()
+                .key(format!("{key}-head"))
+                .center_y()
+                .child(
+                    text(label)
+                        .key(format!("{key}-label"))
+                        .font(type_::BODY)
+                        .color(p.t.text),
+                )
+                .child(spacer())
+                .child(lone_switch(
+                    p,
+                    &format!("{key}-on"),
+                    label,
+                    level.on,
+                    move |app| {
+                        if let Some(editor) = &mut app.editor {
+                            editor.set_level(source, |level| level.on = !level.on);
+                        }
+                    },
+                )),
+        )
         .child(volume)
-        .child(mute);
-    setting(p, key, label, hint, controls)
 }
 
-fn sound(p: &Paint, editor: &Editor) -> El {
-    let rows = if editor.info.has_separate_sound() {
-        vec![
-            source_row(p, editor, Source::System),
-            source_row(p, editor, Source::Microphone),
-        ]
-    } else {
-        vec![
-            caption(
-                p,
-                "clip-sound-fixed",
-                "This recording holds only the mix, so system sound and the microphone cannot be changed apart.",
-            )
-            .padding(space::S3),
-        ]
-    };
-    section(p, "clip-sound", "Sound in the clip", rows)
+fn sound(p: &Paint, editor: &Editor) -> Option<El> {
+    editor.info.has_separate_sound().then(|| {
+        section(
+            p,
+            "clip-sound",
+            "Sound",
+            vec![
+                source_row(p, editor, Source::System),
+                source_row(p, editor, Source::Microphone),
+            ],
+        )
+    })
 }
 
-fn cut_row(p: &Paint, editor: &Editor) -> El {
-    let cuts = [Cut::Fast, Cut::Exact];
-    let segments = Segments {
-        key: "cut",
-        label: "Cut",
-        choices: vec![Choice::new("fast", "Fast"), Choice::new("exact", "Exact")],
-        selected: cuts.iter().position(|cut| *cut == editor.cut),
-        segment_width: CUT_WIDTH,
+fn cut_card(p: &Paint, editor: &Editor, cut: Cut) -> El {
+    let (key, title, words) = match cut {
+        Cut::Fast => (
+            "cut-fast",
+            "Fast",
+            "From the keyframe before the start. No re-encoding.",
+        ),
+        Cut::Exact => (
+            "cut-exact",
+            "Exact",
+            "On the exact frames. A little slower.",
+        ),
     };
-    let hint = match editor.cut {
-        Cut::Fast => "Starts at the keyframe before the in point. Nothing is encoded again.",
-        Cut::Exact => {
-            "Starts and ends on the chosen frames. Only the first moments are encoded again."
-        }
-    };
-    let control = segmented(p, segments, move |app, index| {
-        if let (Some(editor), Some(cut)) = (&mut app.editor, cuts.get(index)) {
-            editor.cut = *cut;
-        }
-    });
-    setting(p, "cut-row", "Cut", Some(hint.into()), control)
+    let chosen = editor.cut == cut;
+    col()
+        .key(key)
+        .role("radio")
+        .label(title)
+        .checked(chosen)
+        .w_frac(0.5)
+        .shrink()
+        .min_w(0.0)
+        .padding(space::S2 + 2.0)
+        .gap(2.0)
+        .radius(radius::MD)
+        .fill(if chosen {
+            p.accent.alpha(0.1)
+        } else {
+            p.t.control_track
+        })
+        .border(p.hair, if chosen { p.accent } else { p.outline })
+        .hover(p.t.hover)
+        .press(p.t.press)
+        .focusable(true)
+        .on_press(with_editor(move |editor| editor.cut = cut))
+        .child(
+            text(title)
+                .key(format!("{key}-title"))
+                .font(STRONG)
+                .color(p.t.text)
+                .a11y_hidden(),
+        )
+        .child(caption(p, &format!("{key}-words"), words))
 }
 
-fn export_button(p: &Paint, label: &str) -> El {
-    button(p, "export", label, Look::Primary, true, Ngine::export_clip)
+fn cut(p: &Paint, editor: &Editor) -> El {
+    col()
+        .key("cut")
+        .role("radiogroup")
+        .label("Cut")
+        .gap(space::S2)
+        .child(super::widgets::section_title(p, "cut-title", "Cut").ml(space::S1))
+        .child(
+            row()
+                .key("cut-cards")
+                .focus_group()
+                .gap(space::S2)
+                .child(cut_card(p, editor, Cut::Fast))
+                .child(cut_card(p, editor, Cut::Exact)),
+        )
 }
 
 fn progress(p: &Paint, done: f32) -> El {
@@ -268,169 +391,219 @@ fn progress(p: &Paint, done: f32) -> El {
         .role("progressbar")
         .label("Export")
         .range_value(f64::from(done), 0.0, 1.0)
-        .size(PROGRESS.0, PROGRESS.1)
-        .radius(PROGRESS.1 / 2.0)
+        .w_full()
+        .h(PROGRESS_HEIGHT)
+        .radius(PROGRESS_HEIGHT / 2.0)
         .fill(p.t.control_off)
         .child(
             el().key("export-progress-fill")
-                .size((PROGRESS.0 * done).max(PROGRESS.1), PROGRESS.1)
-                .radius(PROGRESS.1 / 2.0)
+                .w_frac(done.clamp(0.02, 1.0))
+                .h(PROGRESS_HEIGHT)
+                .radius(PROGRESS_HEIGHT / 2.0)
                 .fill(p.accent)
                 .a11y_hidden(),
         )
 }
 
-fn export_row(p: &Paint, app: &Ngine, editor: &Editor) -> El {
-    let line = row()
-        .key("export-row")
-        .min_h(44.0)
-        .px(space::S3)
-        .py(space::S2)
-        .gap(space::S3)
-        .center_y();
-    match &editor.exporting {
-        Exporting::Idle => line
-            .child(
-                caption(
-                    p,
-                    "export-words",
-                    format!(
-                        "One file with one mixed sound track, saved to {}.",
-                        app.settings.output_folder.display()
-                    ),
+fn export_button(p: &Paint, label: &str) -> El {
+    Button::new("export", label)
+        .icon(&icons::SCISSORS)
+        .look(Look::Primary)
+        .build(p, Ngine::export_clip)
+        .w_full()
+}
+
+fn export(p: &Paint, app: &Ngine, editor: &Editor) -> El {
+    let name = field(
+        p,
+        &Field {
+            key: "clip-name",
+            label: "Clip name",
+            edit: &app.clip_name,
+            placeholder: "Name, or leave empty for the date",
+            icon: None,
+        },
+        |app| &mut app.clip_name,
+        |_| {},
+    );
+    let mut body = col()
+        .key("export-body")
+        .padding(space::S3)
+        .gap(space::S2)
+        .child(name)
+        .child(caption(
+            p,
+            "export-words",
+            format!(
+                "MP4 with one mixed sound track, {} long, saved to {}",
+                format::length(editor.clip_length()),
+                app.settings.output_folder.display()
+            ),
+        ));
+    body = match &editor.exporting {
+        Exporting::Idle => body.child(export_button(p, "Export clip")),
+        Exporting::Running { done, .. } => body.child(progress(p, *done)).child(
+            row()
+                .key("export-running")
+                .center_y()
+                .child(
+                    text(format!("Exporting… {:.0} %", done * 100.0))
+                        .key("export-percent")
+                        .font(NUMBERS)
+                        .color(p.t.text),
                 )
-                .grow(1.0)
-                .min_w(0.0),
-            )
-            .child(export_button(p, "Export clip")),
-        Exporting::Running { done, .. } => line
-            .child(progress(p, *done))
-            .child(
-                text(format!("Exporting {:.0}%", done * 100.0))
-                    .key("export-percent")
-                    .font(type_::LABEL.features("tnum"))
-                    .color(p.t.text),
-            )
-            .child(spacer())
-            .child(button(
-                p,
-                "export-cancel",
-                "Cancel",
-                Look::Plain,
-                true,
-                |app| {
-                    if let Some(editor) = &mut app.editor {
-                        editor.cancel_export();
-                    }
-                },
-            )),
+                .child(spacer())
+                .child(
+                    Button::new("export-cancel", "Cancel")
+                        .build(p, with_editor(Editor::cancel_export)),
+                ),
+        ),
         Exporting::Done { file, length } => {
+            let shown = file.clone();
             let name = file
                 .file_name()
                 .map(|name| name.to_string_lossy().into_owned())
                 .unwrap_or_default();
-            let shown = file.clone();
-            line.child(
-                text(format!("Saved {name}  ·  {}", format::length(*length)))
+            body.child(
+                text(format!("Saved {name} · {}", format::length(*length)))
                     .key("export-done")
                     .role("status")
                     .font(type_::LABEL)
                     .color(p.good)
-                    .wrap()
-                    .grow(1.0)
-                    .min_w(0.0),
+                    .wrap(),
             )
-            .child(button(
-                p,
-                "export-show",
-                &format!("Show in {}", platform::FILE_MANAGER),
-                Look::Plain,
-                true,
-                move |app| app.reveal(&shown),
-            ))
-            .child(export_button(p, "Export again"))
+            .child(
+                row()
+                    .key("export-after")
+                    .gap(space::S2)
+                    .child(
+                        Button::new(
+                            "export-show",
+                            &format!("Show in {}", platform::FILE_MANAGER),
+                        )
+                        .icon(&icons::FOLDER_OPEN)
+                        .build(p, move |app| app.reveal(&shown))
+                        .grow(1.0),
+                    )
+                    .child(
+                        Button::new("export", "Export again")
+                            .build(p, Ngine::export_clip)
+                            .grow(1.0),
+                    ),
+            )
         }
-        Exporting::Failed(error) => line
+        Exporting::Failed(error) => body
             .child(
                 text(format!("The clip could not be exported: {error}"))
                     .key("export-failed")
                     .role("alert")
                     .font(type_::LABEL)
                     .color(p.danger)
-                    .wrap()
-                    .grow(1.0)
-                    .min_w(0.0),
+                    .wrap(),
             )
             .child(export_button(p, "Try again")),
-    }
+    };
+    section(p, "export-section", "Export", vec![body])
 }
 
-fn empty(p: &Paint) -> El {
-    col()
-        .key("editor-empty")
-        .w_full()
-        .h(EMPTY_HEIGHT)
-        .center()
-        .gap(space::S2)
-        .child(
-            text("No recording open")
-                .key("editor-empty-title")
-                .font(HEADING)
-                .color(p.t.text),
-        )
-        .child(caption(
-            p,
-            "editor-empty-words",
-            "Open a recording from the library to preview it, trim it and export a clip.",
-        ))
-        .child(button(
-            p,
-            "editor-to-library",
-            "Go to the library",
-            Look::Plain,
-            true,
-            |app| app.show(Screen::Library),
-        ))
-}
-
-fn header(p: &Paint, editor: &Editor) -> El {
+fn header(p: &Paint, editor: &Editor, keys_open: bool) -> El {
     row()
         .key("editor-header")
-        .gap(space::S3)
+        .gap(space::S2)
         .center_y()
+        .child(
+            Button::new("editor-back", "Library")
+                .icon(&icons::ARROW_LEFT)
+                .look(Look::Quiet)
+                .help("Back to the library (Esc)")
+                .build(p, Ngine::close_editor),
+        )
         .child(
             text(editor.name.clone())
                 .key("editor-name")
+                .role("heading")
+                .level(1)
                 .font(HEADING)
                 .color(p.t.text)
-                .ml(space::S3),
+                .truncate()
+                .min_w(0.0)
+                .shrink(),
         )
-        .child(caption(
-            p,
-            "editor-details",
-            format!(
-                "{}  ·  {} × {}",
+        .child(
+            text(format!(
+                "{} · {} × {}",
                 format::length(editor.length()),
                 editor.info.width,
                 editor.info.height
-            ),
-        ))
+            ))
+            .key("editor-details")
+            .font(NUMBERS)
+            .color(p.faint),
+        )
         .child(spacer())
-        .child(button(
-            p,
-            "editor-close",
-            "Close",
-            Look::Plain,
-            true,
-            Ngine::close_editor,
-        ))
+        .child(
+            Button::new("editor-keys-button", "Keyboard shortcuts")
+                .only_icon(&icons::CIRCLE_QUESTION_MARK)
+                .look(Look::Quiet)
+                .build(p, move |app| {
+                    if keys_open {
+                        app.close_popup();
+                    } else {
+                        app.open_popup(Popup::EditorKeys);
+                    }
+                }),
+        )
 }
 
-fn preview(p: &Paint, editor: &Editor) -> El {
+fn shortcuts(ui: &mut Ui<'_>) {
+    let p = ui.p;
+    let mut list = surface(&p, "editor-keys", "dialog", "Keyboard shortcuts")
+        .padding(space::S3)
+        .gap(space::S2)
+        .w(300.0);
+    for (index, (caps, words)) in SHORTCUTS.iter().enumerate() {
+        let caps: Vec<String> = caps.iter().map(|cap| (*cap).to_owned()).collect();
+        list = list.child(
+            row()
+                .key(format!("shortcut-{index}"))
+                .gap(space::S3)
+                .center_y()
+                .child(
+                    el().key(format!("shortcut-{index}-keys"))
+                        .w(72.0)
+                        .child(keycaps(&p, &format!("shortcut-{index}-caps"), &caps)),
+                )
+                .child(caption(&p, &format!("shortcut-{index}-words"), *words)),
+        );
+    }
+    let floating = Floating {
+        key: "editor-keys",
+        anchor: "editor-keys-button",
+        side: Side::Bottom,
+        align: Align::End,
+    };
+    float(&mut ui.layer, &floating, list);
+}
+
+fn empty(p: &Paint) -> El {
+    empty_state(
+        p,
+        "editor-empty",
+        &icons::SCISSORS,
+        "No recording open",
+        "Open a recording from the library to trim it and export a clip.".into(),
+        Some(
+            Button::new("editor-to-library", "Go to the library")
+                .build(p, |app| app.show(Screen::Library)),
+        ),
+    )
+}
+
+fn preview(p: &Paint, editor: &Editor, width: f32, height: f32) -> El {
     let mut frame = el()
         .key("preview")
-        .w_full()
-        .h(PREVIEW_HEIGHT)
+        .w(width)
+        .h(height)
         .radius(radius::LG)
         .fill(Color::BLACK)
         .center()
@@ -447,34 +620,70 @@ fn preview(p: &Paint, editor: &Editor) -> El {
     frame
 }
 
-pub fn view(p: &Paint, app: &Ngine, timeline_width: f32) -> El {
+pub fn view(ui: &mut Ui<'_>, timeline_width: f32) -> El {
+    let p = ui.p;
+    let app = ui.app;
     let Some(editor) = &app.editor else {
-        return empty(p);
+        return page("editor", sheet(ui, "editor").child(empty(&p)));
     };
-    col()
-        .key("editor")
+    let keys_open = app.popup == Some(Popup::EditorKeys);
+    let width = ui.content_width();
+    let side_by_side = width >= SIDE_BY_SIDE_FROM && ui.window.0 >= ui.window.1;
+    let video_width = if side_by_side {
+        width - PANEL_WIDTH - space::S6
+    } else {
+        width
+    };
+    let tallest = (ui.window.1 - 260.0).max(160.0);
+    let video_height = (video_width * 9.0 / 16.0).min(tallest);
+    let mut stage = col()
+        .key("stage")
+        .w(video_width)
         .gap(space::S3)
-        .child(header(p, editor))
-        .child(preview(p, editor))
-        .child(transport(p, editor))
-        .child(timeline(p, editor, timeline_width))
-        .child(caption(
-            p,
-            "editor-keys",
-            "Space plays  ·  ← → move one frame, with Shift one second  ·  I and O set the in and out points  ·  drag the ends of the clip",
-        ))
-        .children(editor.plays_silently().then(|| {
-            caption(
-                p,
-                "preview-silent",
-                "No sound output could be opened, so the preview plays without sound. The clip keeps its sound.",
-            )
-        }))
-        .child(sound(p, editor))
-        .child(section(
-            p,
-            "export-section",
-            "Export",
-            vec![cut_row(p, editor), export_row(p, app, editor)],
-        ))
+        .child(preview(&p, editor, video_width, video_height))
+        .child(transport(&p, editor, video_width < 600.0))
+        .child(
+            col()
+                .key("timeline-block")
+                .gap(space::S1)
+                .child(range(&p, editor))
+                .child(timeline(&p, editor, timeline_width)),
+        );
+    if editor.plays_silently() {
+        stage = stage.child(caption(
+            &p,
+            "preview-silent",
+            "No sound output could be opened, so the preview plays without sound. The clip keeps its sound.",
+        ));
+    }
+    let mut panel = col()
+        .key("editor-panel")
+        .gap(space::S6 - 4.0)
+        .child(cut(&p, editor));
+    if let Some(sound) = sound(&p, editor) {
+        panel = panel.child(sound);
+    }
+    panel = panel.child(export(&p, app, editor));
+    let body = if side_by_side {
+        row()
+            .key("editor-body")
+            .gap(space::S6)
+            .items_start()
+            .child(stage)
+            .child(panel.w(PANEL_WIDTH))
+    } else {
+        col()
+            .key("editor-body")
+            .gap(space::S6 - 4.0)
+            .child(stage)
+            .child(panel.w_full())
+    };
+    if keys_open {
+        shortcuts(ui);
+    }
+    let content = sheet(ui, "editor")
+        .gap(space::S3)
+        .child(header(&p, editor, keys_open))
+        .child(body);
+    page("editor", content)
 }

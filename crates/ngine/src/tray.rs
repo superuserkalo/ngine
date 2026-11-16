@@ -187,6 +187,7 @@ mod tests {
             held: Duration::from_secs(5),
             length: Duration::from_secs(60),
             on_disk: false,
+            bytes: 0,
         }
     }
 
@@ -226,6 +227,7 @@ mod tests {
         let status = Status {
             recording: Some(recording()),
             replay: Some(replay()),
+            levels: None,
         };
         let model = Model::of(&status, &settings());
         assert_eq!(model.indicator, Indicator::Recording);
@@ -239,6 +241,7 @@ mod tests {
         let status = Status {
             recording: None,
             replay: Some(replay()),
+            levels: None,
         };
         let model = Model::of(&status, &settings());
         assert_eq!(model.indicator, Indicator::ReplayOn);

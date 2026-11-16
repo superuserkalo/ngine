@@ -278,11 +278,10 @@ impl Reader<'_> {
         self.0.get(key).unwrap_or(default)
     }
 
-    fn text(&self, key: &str, default: String) -> String {
+    fn hotkey(&self, key: &str, default: String) -> String {
         self.0
             .get::<String>(key)
-            .filter(|text| !text.trim().is_empty())
-            .unwrap_or(default)
+            .map_or(default, |text| text.trim().to_owned())
     }
 
     fn folder(&self, key: &str, default: PathBuf) -> PathBuf {
@@ -358,11 +357,11 @@ fn read(prefs: &Prefs, defaults: Settings) -> Settings {
         },
         output_folder: reader.folder("output_folder", output_folder),
         hotkeys: Hotkeys {
-            record: reader.text("hotkeys.record", hotkeys.record),
-            save_short: reader.text("hotkeys.save_short", hotkeys.save_short),
-            save_custom: reader.text("hotkeys.save_custom", hotkeys.save_custom),
-            save_everything: reader.text("hotkeys.save_everything", hotkeys.save_everything),
-            marker: reader.text("hotkeys.marker", hotkeys.marker),
+            record: reader.hotkey("hotkeys.record", hotkeys.record),
+            save_short: reader.hotkey("hotkeys.save_short", hotkeys.save_short),
+            save_custom: reader.hotkey("hotkeys.save_custom", hotkeys.save_custom),
+            save_everything: reader.hotkey("hotkeys.save_everything", hotkeys.save_everything),
+            marker: reader.hotkey("hotkeys.marker", hotkeys.marker),
         },
         start_at_login: reader.flag("start_at_login", start_at_login),
         announcements: Announcements {
@@ -376,6 +375,7 @@ pub struct Store {
     prefs: Prefs,
     saved: Vec<(&'static str, Entry)>,
     found_damaged: bool,
+    defaults: Option<Settings>,
 }
 
 impl Store {
@@ -386,6 +386,7 @@ impl Store {
             prefs,
             saved: Vec::new(),
             found_damaged: existed && !file.exists(),
+            defaults: None,
         }
     }
 
@@ -394,6 +395,7 @@ impl Store {
             prefs: Prefs::memory(),
             saved: Vec::new(),
             found_damaged: false,
+            defaults: None,
         }
     }
 
@@ -403,7 +405,13 @@ impl Store {
         self.found_damaged
     }
 
+    /// The settings a fresh install starts with, once [`Store::load`] ran.
+    pub fn defaults(&self) -> Option<&Settings> {
+        self.defaults.as_ref()
+    }
+
     pub fn load(&mut self, defaults: Settings) -> Settings {
+        self.defaults = Some(defaults.clone());
         let settings = read(&self.prefs, defaults);
         self.saved = entries(&settings)
             .into_iter()

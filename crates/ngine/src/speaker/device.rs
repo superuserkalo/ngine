@@ -1,3 +1,6 @@
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU8, Ordering};
+
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{SampleFormat, Stream};
 use ngine_recorder::SoundFeed;
@@ -18,6 +21,7 @@ struct Source {
     between: f32,
     step: f32,
     same_rate: bool,
+    volume_percent: Arc<AtomicU8>,
 }
 
 impl Source {
@@ -48,8 +52,9 @@ impl Source {
     }
 
     fn write(&mut self, out: &mut [f32], channels: usize) {
+        let volume = f32::from(self.volume_percent.load(Ordering::Relaxed)) / 100.0;
         for frame in out.chunks_mut(channels.max(1)) {
-            let [left, right] = self.device_frame();
+            let [left, right] = self.device_frame().map(|sample| sample * volume);
             match frame {
                 [only] => *only = f32::midpoint(left, right),
                 [first, second, others @ ..] => {
@@ -64,7 +69,7 @@ impl Source {
 }
 
 impl Speaker {
-    pub fn open(feed: SoundFeed) -> Option<Self> {
+    pub fn open(feed: SoundFeed, volume_percent: Arc<AtomicU8>) -> Option<Self> {
         let device = cpal::default_host().default_output_device()?;
         let supported = device.default_output_config().ok()?;
         if supported.sample_format() != SampleFormat::F32 {
@@ -82,6 +87,7 @@ impl Speaker {
             between: 0.0,
             step: FEED_RATE / rate.max(1.0),
             same_rate: config.sample_rate == 48_000,
+            volume_percent,
         };
         let stream = device
             .build_output_stream(

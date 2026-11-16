@@ -59,6 +59,27 @@ pub fn position(at: Duration) -> String {
     format!("{minutes:02}:{seconds:02}.{tenth}")
 }
 
+/// `text` as a file name every system accepts: without the characters a
+/// path or a Windows file name reserves, and without space at its ends.
+pub fn file_name(text: &str) -> String {
+    text.chars()
+        .filter(|character| !character.is_control() && !r#"/\:*?"<>|"#.contains(*character))
+        .collect::<String>()
+        .trim()
+        .trim_end_matches('.')
+        .to_owned()
+}
+
+/// Bytes as the free space of a disk reads: whole gigabytes above ten.
+pub fn free_space(bytes: u64) -> String {
+    let megabytes_free = bytes / BYTES_PER_MB;
+    if megabytes_free >= 10 * MB_PER_GB {
+        format!("{} GB", megabytes_free / MB_PER_GB)
+    } else {
+        megabytes(megabytes_free)
+    }
+}
+
 const MONTHS: [&str; 12] = [
     "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
 ];
@@ -108,6 +129,20 @@ mod tests {
         assert_eq!(megabytes(approximate_megabytes(89_880_000)), "90 MB");
         assert_eq!(megabytes(approximate_megabytes(1_797_600_000)), "1.8 GB");
         assert_eq!(megabytes(approximate_megabytes(1_000_000)), "5 MB");
+    }
+
+    #[test]
+    fn a_typed_name_loses_what_a_file_name_cannot_hold() {
+        assert_eq!(file_name("  Boss: fight / take 2?  "), "Boss fight  take 2");
+        assert_eq!(file_name("ends in dots..."), "ends in dots");
+        assert_eq!(file_name(" \t "), "");
+    }
+
+    #[test]
+    fn free_space_reads_in_whole_gigabytes_when_there_is_plenty() {
+        assert_eq!(free_space(212_400_000_000), "212 GB");
+        assert_eq!(free_space(4_300_000_000), "4.3 GB");
+        assert_eq!(free_space(310_000_000), "310 MB");
     }
 
     #[test]

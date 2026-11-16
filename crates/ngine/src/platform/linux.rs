@@ -3,12 +3,14 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use super::{Autostart, BACKGROUND_FLAG, Folders};
+use crate::engine::Permission;
 
 pub const VIDEOS_FOLDER: &str = "Videos";
 pub const SAMPLE_OUTPUT_FOLDER: &str = "~/Videos/ngine";
 pub const SAMPLE_BUFFER_FOLDER: &str = "~/.cache/ngine/replay";
 pub const FILE_MANAGER: &str = "file manager";
 pub const TRASH: &str = "Trash";
+pub const SYSTEM_SETTINGS: &str = "the system settings";
 pub const LISTS_CAPTURE_TARGETS: bool = false;
 
 const ENTRY_FILE: &str = "autostart/ngine.desktop";
@@ -33,6 +35,20 @@ pub fn reveal(file: &Path) -> Command {
     let mut command = Command::new("xdg-open");
     command.arg(file.parent().unwrap_or(file));
     command
+}
+
+pub fn open_folder(folder: &Path) -> Command {
+    let mut command = Command::new("xdg-open");
+    command.arg(folder);
+    command
+}
+
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "the portal asks for itself, so there is no page, and the callers ask every system alike"
+)]
+pub fn privacy_settings(_: Permission) -> Option<Command> {
+    None
 }
 
 pub fn autostart(folders: &Folders<'_>, running: &Path) -> Autostart {

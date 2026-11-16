@@ -2,17 +2,22 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use ngine_recorder::Cut;
+use rune::TextEdit;
 
-use super::{Action, Ngine, Screen, SettingsTab};
+use super::browse::Filter;
+use super::{Action, Ngine, Popup, Screen, Section};
 use crate::editor::{Editor, Exporting, Source};
 use crate::engine::fake::{Clock, FakeEngine};
 use crate::engine::{Permission, Problem, ReplayStorage, TargetKind};
+use crate::hotkeys;
 use crate::library::Library;
 use crate::platform;
 use crate::settings::{Settings, Store};
 
 pub const OUTPUT_FOLDER: &str = platform::SAMPLE_OUTPUT_FOLDER;
 const BUFFER_FOLDER: &str = platform::SAMPLE_BUFFER_FOLDER;
+const LONG_NAME: &str =
+    "Ranked match on the new map with the whole squad, overtime and the comeback nobody expected";
 
 pub fn settings() -> Settings {
     Settings::defaults(PathBuf::from(OUTPUT_FOLDER), PathBuf::from(BUFFER_FOLDER))
@@ -37,7 +42,7 @@ fn pass(app: &mut Ngine, time: Duration) {
 }
 
 fn recording(app: &mut Ngine) {
-    app.show_kind(TargetKind::Window);
+    app.choose_first(TargetKind::Window);
     app.perform(Action::ToggleRecording);
     pass(app, Duration::from_secs(12));
     app.perform(Action::AddMarker);
@@ -122,13 +127,13 @@ fn disk_full(app: &mut Ngine) {
     app.notice = None;
 }
 
-fn settings_tab(app: &mut Ngine, tab: SettingsTab) {
+fn section(app: &mut Ngine, section: Section) {
     app.screen = Screen::Settings;
-    app.settings_tab = tab;
+    app.section = section;
 }
 
 fn settings_replay_long(app: &mut Ngine) {
-    settings_tab(app, SettingsTab::Replay);
+    section(app, Section::Replay);
     app.edit(|settings| {
         settings.replay.length_seconds = 1200;
         settings.replay.save_seconds = 120;
@@ -137,12 +142,19 @@ fn settings_replay_long(app: &mut Ngine) {
 }
 
 fn settings_hotkey_problem(app: &mut Ngine) {
-    settings_tab(app, SettingsTab::Hotkeys);
+    section(app, Section::Hotkeys);
     app.edit(|settings| {
         settings.hotkeys.marker = "m".into();
         settings.hotkeys.save_custom = settings.hotkeys.save_short.clone();
     });
-    app.fields = super::Fields::of(&app.settings);
+}
+
+fn settings_hotkey_conflict(app: &mut Ngine) {
+    section(app, Section::Hotkeys);
+    app.begin_hotkey(hotkeys::MARKER);
+    if let Some(taken) = hotkeys::parse(&app.settings.hotkeys.record) {
+        app.propose_hotkey(hotkeys::MARKER, &taken);
+    }
 }
 
 fn settings_reset(app: &mut Ngine) {
@@ -152,6 +164,18 @@ fn settings_reset(app: &mut Ngine) {
 fn library(app: &mut Ngine) {
     app.library = Library::sample(&app.settings.output_folder);
     app.screen = Screen::Library;
+}
+
+fn library_long_names(app: &mut Ngine) {
+    library(app);
+    if let Some(entry) = app.library.entries.get_mut(1) {
+        LONG_NAME.clone_into(&mut entry.item.name);
+        entry.item.info = None;
+    }
+    if let Some(entry) = app.library.entries.get_mut(3) {
+        entry.item.name = format!("Clip {LONG_NAME}");
+        entry.item.unfinished = true;
+    }
 }
 
 fn editor(app: &mut Ngine) {
@@ -171,6 +195,9 @@ pub type Scene = (&'static str, fn(&mut Ngine));
 
 pub const SCENES: &[Scene] = &[
     ("idle", |_| {}),
+    ("idle-with-recent", |app| {
+        app.library = Library::sample(&app.settings.output_folder);
+    }),
     ("recording", recording),
     ("replay", replay),
     ("recording-and-replay", |app| {
@@ -178,6 +205,10 @@ pub const SCENES: &[Scene] = &[
         recording(app);
     }),
     ("replay-saved", replay_saved),
+    ("sources-open", Ngine::open_sources),
+    ("replay-length-open", |app| {
+        app.open_popup(Popup::Choices("replay-length".into()));
+    }),
     ("picker-only", picker_only),
     ("picker-waiting", picker_waiting),
     ("picker-chosen", picker_chosen),
@@ -187,34 +218,67 @@ pub const SCENES: &[Scene] = &[
     ("permission-missing", permission_missing),
     ("disk-full", disk_full),
     ("settings-reset", settings_reset),
-    ("settings-video", |app| {
-        settings_tab(app, SettingsTab::Video);
+    ("settings-video", |app| section(app, Section::Video)),
+    ("settings-codec-open", |app| {
+        section(app, Section::Video);
+        app.open_popup(Popup::Choices("codec".into()));
     }),
-    ("settings-audio", |app| {
-        settings_tab(app, SettingsTab::Audio);
-    }),
-    ("settings-replay", |app| {
-        settings_tab(app, SettingsTab::Replay);
-    }),
+    ("settings-audio", |app| section(app, Section::Audio)),
+    ("settings-replay", |app| section(app, Section::Replay)),
     ("settings-replay-long", settings_replay_long),
-    ("settings-hotkeys", |app| {
-        settings_tab(app, SettingsTab::Hotkeys);
+    ("settings-hotkeys", |app| section(app, Section::Hotkeys)),
+    ("settings-hotkey-recording", |app| {
+        section(app, Section::Hotkeys);
+        app.begin_hotkey(hotkeys::SAVE_SHORT);
     }),
+    ("settings-hotkey-conflict", settings_hotkey_conflict),
     ("settings-hotkey-problem", settings_hotkey_problem),
-    ("settings-general", |app| {
-        settings_tab(app, SettingsTab::General);
+    ("settings-storage", |app| section(app, Section::Storage)),
+    ("settings-general", |app| section(app, Section::General)),
+    ("settings-about", |app| section(app, Section::About)),
+    ("settings-reset-ask", |app| {
+        section(app, Section::Video);
+        app.open_popup(Popup::ConfirmReset(Section::Video));
     }),
     ("library", library),
     ("library-empty", |app| app.screen = Screen::Library),
+    ("library-replays", |app| {
+        library(app);
+        app.set_filter(Filter::Replays);
+    }),
+    ("library-no-results", |app| {
+        library(app);
+        app.browse.search = TextEdit::new("speedrun");
+    }),
+    ("library-selected", |app| {
+        library(app);
+        app.toggle_selected(1);
+        app.toggle_selected(3);
+    }),
+    ("library-menu", |app| {
+        library(app);
+        app.open_item_menu(1, None);
+    }),
+    ("library-trash-ask", |app| {
+        library(app);
+        app.toggle_selected(1);
+        app.toggle_selected(3);
+        app.ask_to_trash_selection();
+    }),
     ("library-renaming", |app| {
         library(app);
         app.start_rename(3);
     }),
+    ("library-long-names", library_long_names),
     ("editor", editor),
     ("editor-empty", |app| app.screen = Screen::Editor),
     ("editor-playing", |app| {
         editor(app);
         in_editor(app, |editor| editor.playing = true);
+    }),
+    ("editor-keys", |app| {
+        editor(app);
+        app.open_popup(Popup::EditorKeys);
     }),
     ("editor-exact-muted", |app| {
         editor(app);

@@ -4,7 +4,7 @@ use std::time::{Duration, SystemTime};
 use ngine_recorder::rename;
 use rune::{Key, KeyEvent, TextEdit};
 
-use super::{Ngine, Screen};
+use super::{Ngine, Popup, Screen};
 use crate::editor::{Editor, News};
 use crate::format;
 use crate::library::Library;
@@ -58,8 +58,12 @@ impl Ngine {
         }
         self.screen = screen;
         self.renaming = None;
-        if screen == Screen::Library {
-            self.refresh_library();
+        self.popup = None;
+        self.capture = None;
+        match screen {
+            Screen::Library => self.refresh_library(),
+            Screen::Settings => self.measure_free_space(),
+            Screen::Capture | Screen::Editor => {}
         }
     }
 
@@ -68,6 +72,7 @@ impl Ngine {
             return;
         };
         self.editor = None;
+        self.clip_name = TextEdit::new("");
         match Editor::open(&file) {
             Ok(editor) => {
                 self.editor = Some(editor);
@@ -77,8 +82,12 @@ impl Ngine {
         }
     }
 
+    /// Closes the clip editor and goes back to the library it was opened from.
     pub fn close_editor(&mut self) {
         self.editor = None;
+        if self.screen == Screen::Editor {
+            self.show(Screen::Library);
+        }
     }
 
     pub fn start_rename(&mut self, index: usize) {
@@ -89,6 +98,7 @@ impl Ngine {
         self.rename.set_selection(0, entry.item.name.len());
         self.rename.focused = true;
         self.renaming = Some(entry.item.path.clone());
+        self.popup = None;
     }
 
     pub fn cancel_rename(&mut self) {
@@ -104,7 +114,7 @@ impl Ngine {
             .as_ref()
             .is_some_and(|editor| editor.file == file)
         {
-            self.close_editor();
+            self.editor = None;
         }
         match rename(&file, &self.rename.text) {
             Ok(renamed) => self.library.renamed(&file, renamed),
@@ -112,29 +122,6 @@ impl Ngine {
                 self.renaming = Some(file);
                 self.tell(error.to_string(), true);
             }
-        }
-    }
-
-    pub fn move_to_trash(&mut self, index: usize) {
-        let Some(file) = self.library.path(index) else {
-            return;
-        };
-        if self
-            .editor
-            .as_ref()
-            .is_some_and(|editor| editor.file == file)
-        {
-            self.close_editor();
-        }
-        match (self.trash)(&file) {
-            Ok(()) => {
-                self.library.forget(&file);
-                self.tell(format!("Moved to the {}", platform::TRASH), false);
-            }
-            Err(error) => self.tell(
-                format!("It could not be moved to the {}: {error}", platform::TRASH),
-                true,
-            ),
         }
     }
 
@@ -150,15 +137,20 @@ impl Ngine {
         }
     }
 
-    pub fn reveal_entry(&mut self, index: usize) {
-        if let Some(file) = self.library.path(index) {
-            self.reveal(&file);
+    pub fn open_folder(&mut self, folder: &Path) {
+        if let Err(error) = platform::open_folder(folder) {
+            self.tell(format!("The folder could not be opened: {error}"), true);
         }
     }
 
     pub fn export_clip(&mut self) {
         let folder = self.settings.output_folder.clone();
-        let name = format::stamped(CLIP_NAME, &format::local(SystemTime::now()));
+        let typed = format::file_name(&self.clip_name.text);
+        let name = if typed.is_empty() {
+            format::stamped(CLIP_NAME, &format::local(SystemTime::now()))
+        } else {
+            typed
+        };
         if let Some(editor) = &mut self.editor {
             editor.pause();
             editor.export(&folder, &name);
@@ -207,6 +199,12 @@ impl Ngine {
         let far = event.mods.shift;
         match &event.key {
             Key::Text(key) if key == " " => editor.toggle_play(),
+            Key::Text(key) if key == "?" => {
+                self.popup = match self.popup {
+                    Some(Popup::EditorKeys) => None,
+                    _ => Some(Popup::EditorKeys),
+                };
+            }
             Key::Left if far => editor.skip(-1),
             Key::Right if far => editor.skip(1),
             Key::Left => editor.step(-1),

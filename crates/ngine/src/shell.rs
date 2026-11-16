@@ -8,7 +8,7 @@ use ngine_recorder::replay::remove_leftovers;
 use rune::dirs::AppDirs;
 use rune::{App, AppHandle, AppSpec, OverlayHandle, ShortcutError, ShortcutId};
 
-use crate::app::{self, Action, NAME, Ngine, WINDOW_SIZE};
+use crate::app::{self, Action, NAME, Ngine, SMALLEST_WINDOW, WINDOW_SIZE};
 use crate::bar::{self, BarState};
 use crate::cli::{Command, Reply};
 use crate::engine::Engine;
@@ -152,7 +152,7 @@ fn spec() -> AppSpec<Ngine> {
         scenes: app::demo::SCENES,
         poll: Some(app::poll),
         on_key: Some(app::on_key),
-        min_size: Some(WINDOW_SIZE),
+        min_size: Some(SMALLEST_WINDOW),
         ..AppSpec::new(NAME, WINDOW_SIZE, app::demo::idle, ui::view)
     }
 }

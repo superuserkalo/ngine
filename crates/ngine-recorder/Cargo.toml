@@ -13,7 +13,7 @@ links = "ngine_recorder"
 [dependencies]
 ngine-capture = { path = "../ngine-capture" }
 ngine-media = { path = "../ngine-media" }
-sysinfo = { version = "=0.40.3", default-features = false, features = ["system"] }
+sysinfo = { version = "=0.40.3", default-features = false, features = ["disk", "system"] }
 
 [dev-dependencies]
 proptest = { version = "=1.12.0", default-features = false, features = ["std"] }

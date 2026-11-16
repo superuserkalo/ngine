@@ -1,12 +1,12 @@
 use std::cell::{Cell, RefCell};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use super::{
-    Audio, Capabilities, Codec, Engine, Event, Problem, Quality, Recording, RecordingRequest,
-    Refusal, Replay, ReplayRequest, ReplaySpan, ReplayStorage, Status, Target, TargetKind, Tracks,
-    Video,
+    Audio, Capabilities, Codec, Engine, Event, Levels, Problem, Quality, Recording,
+    RecordingRequest, Refusal, Replay, ReplayRequest, ReplaySpan, ReplayStorage, Status, Target,
+    TargetKind, Tracks, Video,
 };
 
 const PICKER_DELAY: Duration = Duration::from_millis(600);
@@ -14,6 +14,9 @@ const SAVE_DELAY: Duration = Duration::from_millis(300);
 const KEYFRAME_INTERVAL_MS: u128 = 1000;
 const AUDIO_TRACK_KBPS: u64 = 128;
 const BYTES_PER_MB: u64 = 1_000_000;
+const SAMPLE_FREE_BYTES: u64 = 212_400_000_000;
+const SAMPLE_SYSTEM_LEVEL: u32 = 62;
+const SAMPLE_MICROPHONE_LEVEL: u32 = 34;
 
 #[derive(Clone)]
 pub enum Clock {
@@ -118,6 +121,13 @@ impl FakeEngine {
 }
 
 impl Inner {
+    fn capturing_audio(&self) -> Option<Audio> {
+        self.recording
+            .as_ref()
+            .map(|recording| recording.request.audio)
+            .or_else(|| self.replay.as_ref().map(|replay| replay.request.audio))
+    }
+
     fn next_file(&mut self, folder: &std::path::Path, prefix: &str) -> PathBuf {
         self.files_written += 1;
         folder.join(format!("{prefix} {}.mp4", self.files_written))
@@ -354,12 +364,19 @@ impl Engine for FakeEngine {
                 elapsed: now.saturating_sub(recording.started),
                 markers: recording.markers,
             }),
-            replay: inner.replay.as_ref().map(|replay| Replay {
-                target: replay.request.target.clone(),
-                held: inner.held(replay),
-                length: replay.request.length,
-                on_disk: holds_on_disk(&replay.request, self),
+            replay: inner.replay.as_ref().map(|replay| {
+                let held = inner.held(replay);
+                let bytes_per_second =
+                    self.bit_rate(replay.request.video, replay.request.audio) / 8;
+                Replay {
+                    target: replay.request.target.clone(),
+                    held,
+                    length: replay.request.length,
+                    on_disk: holds_on_disk(&replay.request, self),
+                    bytes: bytes_per_second * held.as_secs(),
+                }
             }),
+            levels: inner.capturing_audio().map(sample_levels),
         }
     }
 
@@ -371,6 +388,25 @@ impl Engine for FakeEngine {
         let mut inner = self.inner.borrow_mut();
         inner.settle();
         std::mem::take(&mut inner.events)
+    }
+
+    fn free_space(&self, _: &Path) -> Option<u64> {
+        Some(SAMPLE_FREE_BYTES)
+    }
+}
+
+fn sample_levels(audio: Audio) -> Levels {
+    let level = |source: super::AudioSource, loudest: u32| {
+        let scaled = loudest * u32::from(source.volume_percent) / 100;
+        if source.enabled {
+            u8::try_from(scaled).unwrap_or(u8::MAX)
+        } else {
+            0
+        }
+    };
+    Levels {
+        system: level(audio.system, SAMPLE_SYSTEM_LEVEL),
+        microphone: level(audio.microphone, SAMPLE_MICROPHONE_LEVEL),
     }
 }
 

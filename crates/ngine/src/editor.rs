@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::time::Duration;
 
 use ngine_recorder::{
@@ -15,6 +16,7 @@ use crate::work::{Job, Progress};
 pub const PREVIEW_PIXELS: (u32, u32) = (1280, 720);
 pub const LOUDEST_PERCENT: u16 = 200;
 pub const PERCENT_STEP: u16 = 10;
+pub const FULL_VOLUME: u8 = 100;
 const FALLBACK_FRAME: Duration = Duration::from_micros(16_667);
 
 /// One sound source of the recording, as the clip will hold it.
@@ -78,6 +80,7 @@ pub struct Editor {
     pub failure: Option<String>,
     frame: Duration,
     awaiting_picture: bool,
+    volume_percent: Arc<AtomicU8>,
     speaker: Option<Speaker>,
     player: Option<Player>,
 }
@@ -98,6 +101,7 @@ impl Editor {
         let info = player.info().clone();
         let mut markers = read_markers(file).unwrap_or_default();
         markers.retain(|marker| *marker <= info.length);
+        let volume_percent = Arc::new(AtomicU8::new(FULL_VOLUME));
         Ok(Self {
             file: file.to_owned(),
             name: name_of(file),
@@ -114,7 +118,8 @@ impl Editor {
             failure: None,
             frame: FALLBACK_FRAME,
             awaiting_picture: true,
-            speaker: Speaker::open(player.sound()),
+            speaker: Speaker::open(player.sound(), Arc::clone(&volume_percent)),
+            volume_percent,
             player: Some(player),
             info,
         })
@@ -148,6 +153,7 @@ impl Editor {
             failure: None,
             frame: FALLBACK_FRAME,
             awaiting_picture: false,
+            volume_percent: Arc::new(AtomicU8::new(FULL_VOLUME)),
             speaker: None,
             player: None,
         }
@@ -165,6 +171,16 @@ impl Editor {
     /// Whether the preview has no sound device to play through.
     pub fn plays_silently(&self) -> bool {
         self.player.is_some() && self.speaker.is_none()
+    }
+
+    /// How loud the preview plays, from 0 to 100. The clip is not changed.
+    pub fn volume(&self) -> u8 {
+        self.volume_percent.load(Ordering::Relaxed)
+    }
+
+    pub fn set_volume(&mut self, percent: u8) {
+        self.volume_percent
+            .store(percent.min(FULL_VOLUME), Ordering::Relaxed);
     }
 
     pub fn length(&self) -> Duration {

@@ -3,12 +3,14 @@ use std::time::Duration;
 
 use rune::{Key, KeyEvent, TextEdit, Tx};
 
+use browse::Browse;
+
 use crate::bar::BarState;
 use crate::editor::Editor;
 use crate::engine::fake::FakeEngine;
 use crate::engine::{
-    Capabilities, Engine, Event, Problem, RecordingRequest, ReplayRequest, ReplayStorage, Status,
-    Target, TargetKind,
+    Capabilities, Engine, Event, Permission, Problem, RecordingRequest, ReplayRequest,
+    ReplayStorage, Status, Target, TargetKind,
 };
 use crate::format;
 use crate::hotkeys;
@@ -20,14 +22,18 @@ use crate::shell::Shell;
 use crate::tray;
 
 mod actions;
+pub mod browse;
+mod capture;
 pub mod demo;
 mod media;
 
 pub use actions::Action;
+pub use capture::HotkeyCapture;
 
 pub const NAME: &str = env!("CARGO_PKG_NAME");
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const WINDOW_SIZE: (f32, f32) = (780.0, 560.0);
+pub const WINDOW_SIZE: (f32, f32) = (1040.0, 680.0);
+pub const SMALLEST_WINDOW: (f32, f32) = (720.0, 480.0);
 
 const TICK: Duration = Duration::from_millis(250);
 const NOTICE_SECONDS: f64 = 4.0;
@@ -37,19 +43,54 @@ const BYTES_PER_MB: u64 = 1_000_000;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Screen {
-    Record,
+    Capture,
     Library,
     Editor,
     Settings,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SettingsTab {
+pub enum Section {
     Video,
     Audio,
     Replay,
     Hotkeys,
+    Storage,
     General,
+    About,
+}
+
+impl Section {
+    pub const ALL: [Self; 7] = [
+        Self::Video,
+        Self::Audio,
+        Self::Replay,
+        Self::Hotkeys,
+        Self::Storage,
+        Self::General,
+        Self::About,
+    ];
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Folder {
+    Output,
+    Buffer,
+}
+
+/// The one thing that floats above the window: a menu, a list of choices or a
+/// question. Opening one closes the one before it.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Popup {
+    Sources,
+    Choices(String),
+    ItemMenu {
+        file: PathBuf,
+        at: Option<(f32, f32)>,
+    },
+    EditorKeys,
+    ConfirmTrash(Vec<PathBuf>),
+    ConfirmReset(Section),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -72,37 +113,6 @@ enum AfterPick {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Field {
-    OutputFolder,
-    BufferFolder,
-    Hotkey(usize),
-}
-
-pub struct Fields {
-    pub output_folder: TextEdit,
-    pub buffer_folder: TextEdit,
-    pub hotkeys: [TextEdit; hotkeys::COUNT],
-}
-
-impl Fields {
-    fn of(settings: &Settings) -> Self {
-        Self {
-            output_folder: TextEdit::new(settings.output_folder.to_string_lossy()),
-            buffer_folder: TextEdit::new(settings.replay.buffer_folder.to_string_lossy()),
-            hotkeys: settings.hotkeys.all().map(TextEdit::new),
-        }
-    }
-
-    pub fn get_mut(&mut self, field: Field) -> &mut TextEdit {
-        match field {
-            Field::OutputFolder => &mut self.output_folder,
-            Field::BufferFolder => &mut self.buffer_folder,
-            Field::Hotkey(slot) => &mut self.hotkeys[slot % hotkeys::COUNT],
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ReplayCost {
     pub megabytes: u64,
     pub on_disk: bool,
@@ -116,9 +126,9 @@ pub struct Ngine {
     store: Store,
     pub settings_were_reset: bool,
     pub screen: Screen,
-    pub settings_tab: SettingsTab,
-    pub target_kind: TargetKind,
-    pub targets: Vec<Target>,
+    pub section: Section,
+    pub popup: Option<Popup>,
+    pub sources: Vec<Target>,
     pub target: Option<Target>,
     pub picking: bool,
     after_pick: Option<AfterPick>,
@@ -126,10 +136,13 @@ pub struct Ngine {
     pub problems: Vec<Problem>,
     pub notice: Option<Notice>,
     pub confirmation: Option<Confirmation>,
-    pub fields: Fields,
     pub hotkey_problems: [Option<String>; hotkeys::COUNT],
+    pub capture: Option<HotkeyCapture>,
+    pub free_space: Option<u64>,
     pub library: Library,
+    pub browse: Browse,
     pub editor: Option<Editor>,
+    pub clip_name: TextEdit,
     pub rename: TextEdit,
     pub renaming: Option<PathBuf>,
     pub trash: fn(&Path) -> Result<(), String>,
@@ -152,27 +165,34 @@ impl Ngine {
         {
             settings.video.codec = *codec;
         }
-        let targets = engine.targets(TargetKind::Screen);
+        let sources: Vec<Target> = TargetKind::ALL
+            .into_iter()
+            .flat_map(|kind| engine.targets(kind))
+            .collect();
+        let free_space = engine.free_space(&settings.output_folder);
         let mut app = Self {
             engine,
             simulator,
             settings_were_reset: store.found_damaged(),
             store,
-            screen: Screen::Record,
-            settings_tab: SettingsTab::Video,
-            target_kind: TargetKind::Screen,
-            target: targets.first().cloned(),
-            targets,
+            screen: Screen::Capture,
+            section: Section::Video,
+            popup: None,
+            target: sources.first().cloned(),
+            sources,
             picking: false,
             after_pick: None,
             status: Status::default(),
             problems: Vec::new(),
             notice: None,
             confirmation: None,
-            fields: Fields::of(&settings),
             hotkey_problems: hotkeys::problems(&settings.hotkeys),
+            capture: None,
+            free_space,
             library: Library::offline(),
+            browse: Browse::default(),
             editor: None,
+            clip_name: TextEdit::new(""),
             rename: TextEdit::new(""),
             renaming: None,
             trash: library::move_to_trash,
@@ -214,8 +234,10 @@ impl Ngine {
         format::approximate_megabytes(self.bytes_per_second() * 60)
     }
 
-    pub fn replay_cost(&self) -> ReplayCost {
-        let bytes = self.bytes_per_second() * u64::from(self.settings.replay.length_seconds);
+    /// What a buffer of `length_seconds` would hold and where, with the
+    /// current video and audio settings.
+    pub fn cost_of(&self, length_seconds: u16) -> ReplayCost {
+        let bytes = self.bytes_per_second() * u64::from(length_seconds);
         ReplayCost {
             megabytes: format::approximate_megabytes(bytes),
             on_disk: match self.settings.replay.storage {
@@ -250,27 +272,142 @@ impl Ngine {
         }
     }
 
-    pub fn show_kind(&mut self, kind: TargetKind) {
-        self.target_kind = kind;
-        self.targets = self.engine.targets(kind);
-        if self
-            .target
-            .as_ref()
-            .is_none_or(|target| target.kind != kind)
-        {
-            self.target = self.targets.first().cloned();
+    fn list_sources(&mut self) {
+        self.sources = TargetKind::ALL
+            .into_iter()
+            .flat_map(|kind| self.engine.targets(kind))
+            .collect();
+    }
+
+    /// Opens the list of screens, windows and apps, freshly read. Where the
+    /// system only offers its own picker, opens that instead.
+    pub fn open_sources(&mut self) {
+        if self.capabilities.lists_targets {
+            self.list_sources();
+            self.popup = Some(Popup::Sources);
+        } else {
+            self.pick();
         }
     }
 
     pub fn choose(&mut self, index: usize) {
-        if let Some(target) = self.targets.get(index) {
+        if let Some(target) = self.sources.get(index) {
             self.target = Some(target.clone());
+        }
+        self.popup = None;
+    }
+
+    pub fn choose_first(&mut self, kind: TargetKind) {
+        if let Some(index) = self.sources.iter().position(|source| source.kind == kind) {
+            self.choose(index);
         }
     }
 
     pub fn pick(&mut self) {
+        self.popup = None;
         self.engine.pick_target();
         self.picking = true;
+    }
+
+    pub fn open_popup(&mut self, popup: Popup) {
+        self.popup = Some(popup);
+    }
+
+    pub fn close_popup(&mut self) {
+        self.popup = None;
+    }
+
+    pub fn show_section(&mut self, section: Section) {
+        self.capture = None;
+        self.popup = None;
+        self.section = section;
+        self.screen = Screen::Settings;
+        self.measure_free_space();
+    }
+
+    fn measure_free_space(&mut self) {
+        self.free_space = self.engine.free_space(&self.settings.output_folder);
+    }
+
+    /// The settings a fresh install starts with.
+    pub fn default_settings(&self) -> Settings {
+        self.store
+            .defaults()
+            .cloned()
+            .unwrap_or_else(|| self.settings.clone())
+    }
+
+    /// Puts one section of the settings back to what a fresh install has.
+    pub fn reset_section(&mut self, section: Section) {
+        let fresh = self.default_settings();
+        self.popup = None;
+        self.capture = None;
+        let codecs = self.capabilities.codecs.clone();
+        self.edit(|settings| match section {
+            Section::Video => {
+                settings.video = fresh.video;
+                if !codecs.contains(&settings.video.codec)
+                    && let Some(codec) = codecs.first()
+                {
+                    settings.video.codec = *codec;
+                }
+            }
+            Section::Audio => settings.audio = fresh.audio,
+            Section::Replay => {
+                let buffer_folder = settings.replay.buffer_folder.clone();
+                settings.replay = fresh.replay;
+                settings.replay.buffer_folder = buffer_folder;
+            }
+            Section::Hotkeys => settings.hotkeys = fresh.hotkeys,
+            Section::Storage => {
+                settings.output_folder = fresh.output_folder;
+                settings.replay.buffer_folder = fresh.replay.buffer_folder;
+            }
+            Section::General => settings.start_at_login = fresh.start_at_login,
+            Section::About => {}
+        });
+    }
+
+    /// Takes the answer of a folder dialog.
+    pub fn folder_chosen(&mut self, folder: Folder, answer: Result<Option<PathBuf>, String>) {
+        match answer {
+            Ok(Some(chosen)) => {
+                self.edit(|settings| match folder {
+                    Folder::Output => settings.output_folder = chosen,
+                    Folder::Buffer => settings.replay.buffer_folder = chosen,
+                });
+                if folder == Folder::Output {
+                    self.problems.retain(|problem| {
+                        !matches!(problem, Problem::DiskFull { .. } | Problem::WriteFailed)
+                    });
+                    self.refresh_library();
+                }
+            }
+            Ok(None) => {}
+            Err(error) => self.tell(format!("The folder dialog could not open: {error}"), true),
+        }
+    }
+
+    /// Opens the system's privacy settings where `permission` is granted.
+    pub fn open_privacy_settings(&mut self, permission: Permission) {
+        if let Err(error) = crate::platform::open_privacy_settings(permission) {
+            self.tell(
+                format!(
+                    "{} could not be opened: {error}",
+                    crate::platform::SYSTEM_SETTINGS
+                ),
+                true,
+            );
+        }
+    }
+
+    /// Starts the recording again after a problem ended it.
+    pub fn retry_capture(&mut self) {
+        self.problems
+            .retain(|problem| !matches!(problem, Problem::CaptureLost));
+        if self.status.recording.is_none() {
+            self.perform(Action::ToggleRecording);
+        }
     }
 
     pub fn dismiss_problem(&mut self, index: usize) {
@@ -307,6 +444,9 @@ impl Ngine {
                 true,
             );
         }
+        if before.output_folder != self.settings.output_folder {
+            self.measure_free_space();
+        }
         let capture_changed = before.video != self.settings.video
             || before.audio != self.settings.audio
             || before.replay != self.settings.replay
@@ -317,18 +457,6 @@ impl Ngine {
                 self.tell(refusal.to_string(), true);
             }
         }
-    }
-
-    pub fn field_edited(&mut self, field: Field) {
-        let text = self.fields.get_mut(field).text.trim().to_owned();
-        if text.is_empty() {
-            return;
-        }
-        self.edit(|settings| match field {
-            Field::OutputFolder => settings.output_folder = text.into(),
-            Field::BufferFolder => settings.replay.buffer_folder = text.into(),
-            Field::Hotkey(slot) => settings.hotkeys.set(slot, text),
-        });
     }
 
     pub fn tell(&mut self, text: String, is_error: bool) {
@@ -385,6 +513,7 @@ impl Ngine {
                 self.confirm(format!("Recording saved · {}", format::length(length)));
                 self.announce(Notification::recording_saved(&file, length));
                 self.refresh_library();
+                self.measure_free_space();
             }
             Event::ReplaySaved { file, length } => {
                 self.confirm(format!("Replay saved · {}", format::length(length)));
@@ -491,9 +620,17 @@ pub fn on_key(app: &mut Ngine, event: &KeyEvent, tx: &mut Tx) -> bool {
             tx.quit();
         }
         Key::Command(',') => app.show(Screen::Settings),
+        Key::Command('1') => app.show(Screen::Capture),
+        Key::Command('2') => app.show(Screen::Library),
+        Key::Escape if app.capture.is_some() => app.cancel_hotkey(),
         Key::Escape if app.renaming.is_some() => app.cancel_rename(),
-        _ if app.screen == Screen::Editor && tx.focused().is_none_or(|key| key != "rename") => {
+        Key::Escape if app.screen == Screen::Editor => app.close_editor(),
+        _ if app.screen == Screen::Editor && tx.focused().is_none_or(|key| key != "clip-name") => {
             return app.editor_key(event);
+        }
+        _ if app.screen == Screen::Library && tx.focused().is_none_or(|key| key != "rename") => {
+            let focused = tx.focused().map(str::to_owned);
+            return app.library_key(event, focused.as_deref());
         }
         _ => return false,
     }

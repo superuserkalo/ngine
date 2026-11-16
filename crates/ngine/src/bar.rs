@@ -303,7 +303,9 @@ mod tests {
                 held: Duration::from_secs(75),
                 length: Duration::from_secs(60),
                 on_disk: false,
+                bytes: 0,
             }),
+            levels: None,
         };
         let state = BarState::of(&status);
         assert_eq!(state.recording_seconds, Some(83));

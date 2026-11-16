@@ -1,5 +1,6 @@
 mod audio;
 mod clip;
+mod disk;
 mod error;
 mod event;
 mod export;
@@ -18,6 +19,7 @@ mod time;
 mod video;
 
 pub use clip::unused_path;
+pub use disk::free_space_bytes;
 pub use error::RecorderError;
 pub use event::RecorderEvent;
 pub use export::{Cut, ExportControl, ExportRequest, ExportSummary, export_clip};

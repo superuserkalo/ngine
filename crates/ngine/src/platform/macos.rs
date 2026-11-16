@@ -2,12 +2,14 @@ use std::path::Path;
 use std::process::Command;
 
 use super::{Autostart, BACKGROUND_FLAG, Folders};
+use crate::engine::Permission;
 
 pub const VIDEOS_FOLDER: &str = "Movies";
 pub const SAMPLE_OUTPUT_FOLDER: &str = "~/Movies/ngine";
 pub const SAMPLE_BUFFER_FOLDER: &str = "~/Library/Caches/ngine/replay";
 pub const FILE_MANAGER: &str = "Finder";
 pub const TRASH: &str = "Trash";
+pub const SYSTEM_SETTINGS: &str = "System Settings";
 pub const LISTS_CAPTURE_TARGETS: bool = true;
 
 const AGENT_FILE: &str = "Library/LaunchAgents/ngine.plist";
@@ -22,6 +24,28 @@ pub fn reveal(file: &Path) -> Command {
     let mut command = Command::new("open");
     command.arg("-R").arg(file);
     command
+}
+
+pub fn open_folder(folder: &Path) -> Command {
+    let mut command = Command::new("open");
+    command.arg(folder);
+    command
+}
+
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "other systems have no such page, and the callers ask every system alike"
+)]
+pub fn privacy_settings(permission: Permission) -> Option<Command> {
+    let pane = match permission {
+        Permission::ScreenRecording => "Privacy_ScreenCapture",
+        Permission::Microphone => "Privacy_Microphone",
+    };
+    let mut command = Command::new("open");
+    command.arg(format!(
+        "x-apple.systempreferences:com.apple.preference.security?{pane}"
+    ));
+    Some(command)
 }
 
 pub fn autostart(folders: &Folders<'_>, program: &Path) -> Autostart {

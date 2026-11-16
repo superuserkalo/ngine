@@ -11,7 +11,7 @@ use ngine_recorder::replay::{
 use ngine_recorder::{
     AudioCodec, AudioSettings, CaptureSetup, EncoderInfo, Recorder, RecorderConfig, RecorderError,
     RecorderEvent, RecordingStart, ReplaySaveRequest, ReplaySetup, VideoCodec, VideoSettings,
-    bit_rate_cap, unused_path, working_video_codecs, working_video_encoders,
+    bit_rate_cap, free_space_bytes, unused_path, working_video_codecs, working_video_encoders,
 };
 
 use crate::format;
@@ -638,7 +638,9 @@ impl Engine for RealEngine {
                 held: status.replay.map_or(Duration::ZERO, |replay| replay.held),
                 length: request.length,
                 on_disk: status.replay.is_some_and(|replay| replay.on_disk),
+                bytes: status.replay.map_or(0, |replay| replay.bytes),
             }),
+            levels: None,
         }
     }
 
@@ -650,6 +652,10 @@ impl Engine for RealEngine {
         self.take_picks();
         self.take_recorder_events();
         std::mem::take(&mut self.events)
+    }
+
+    fn free_space(&self, folder: &Path) -> Option<u64> {
+        free_space_bytes(folder)
     }
 }
 

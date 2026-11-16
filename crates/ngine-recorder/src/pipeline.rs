@@ -85,6 +85,7 @@ pub struct ReplayStatus {
     pub held: Duration,
     pub length: Duration,
     pub on_disk: bool,
+    pub bytes: u64,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -811,6 +812,7 @@ impl Pipeline {
                     .min(replay.setup.length.get()),
                 length: replay.setup.length.get(),
                 on_disk: replay.buffer.backend_kind() == BackendKind::Disk,
+                bytes: replay.buffer.size_bytes(),
             }),
             encoder: self
                 .stage

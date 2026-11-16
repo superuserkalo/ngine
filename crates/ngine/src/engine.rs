@@ -1,5 +1,5 @@
 use std::fmt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 pub mod fake;
@@ -128,6 +128,14 @@ pub struct Capabilities {
 pub struct Status {
     pub recording: Option<Recording>,
     pub replay: Option<Replay>,
+    pub levels: Option<Levels>,
+}
+
+/// How loud each source is right now, from 0 (silent) to 100 (full scale).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Levels {
+    pub system: u8,
+    pub microphone: u8,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -143,6 +151,7 @@ pub struct Replay {
     pub held: Duration,
     pub length: Duration,
     pub on_disk: bool,
+    pub bytes: u64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -250,4 +259,8 @@ pub trait Engine {
     fn bit_rate(&self, video: Video, audio: Audio) -> u64;
 
     fn take_events(&mut self) -> Vec<Event>;
+
+    /// The bytes still free on the disk that holds `folder`, when the system
+    /// can say.
+    fn free_space(&self, folder: &Path) -> Option<u64>;
 }

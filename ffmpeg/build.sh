@@ -180,12 +180,11 @@ build_libvpl() {
   fetch libvpl "$libvpl_url" "$libvpl_sha256"
   cmake_build libvpl -DUSE_MSVC_STATIC_RUNTIME=ON -DBUILD_TESTS=OFF -DBUILD_EXAMPLES=OFF \
     -DBUILD_TOOLS=OFF -DINSTALL_EXAMPLES=OFF -DBUILD_EXPERIMENTAL=OFF
-  local pc
-  for pc in "$prefix"/lib/pkgconfig/vpl.pc; do
-    sed -i -e "s|^prefix=.*|prefix=$(native_path "$prefix")|" \
-      -e "s|^libdir=.*|libdir=\${prefix}/lib|" \
-      -e "s|^includedir=.*|includedir=\${prefix}/include|" "$pc"
-  done
+  sed -i -e "s|^prefix=.*|prefix=$(native_path "$prefix")|" \
+    -e "s|^libdir=.*|libdir=\${prefix}/lib|" \
+    -e "s|^includedir=.*|includedir=\${prefix}/include|" \
+    -e "s|^Libs.private:.*|Libs.private: -ladvapi32 -lole32|" \
+    "$prefix/lib/pkgconfig/vpl.pc"
 }
 
 common_flags=(

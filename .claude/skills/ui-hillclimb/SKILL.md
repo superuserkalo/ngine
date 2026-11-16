@@ -16,6 +16,7 @@ Climb from the window as it is. Its structure is the owner's accepted starting p
 3. **Fix the worst first.** Blockers, then clear flaws. Nits only when nothing worse is left.
 4. **Repeat** until a round finds no blocker and no clear flaw, or three rounds have run without progress. Keep each round's pictures so the owner can see the climb.
 5. **Drive the real app** on this Mac for what pictures cannot show: hover, focus, keyboard, menus, timing.
+6. **Learn from misses.** When the owner finds a problem the rubric did not catch, add the rule that would have caught it to the rubric below, in the same commit as the fix.
 
 ## Rubric
 
@@ -32,6 +33,8 @@ Climb from the window as it is. Its structure is the owner's accepted starting p
 **Type.** At most three sizes on a screen. Weight and tone carry hierarchy before size does. Muted text is still readable.
 
 **Space.** Content uses the window: no large dead areas next to cramped ones, nothing cut off at 720×480, nothing stretched thin at 1280×800. Long names truncate with an ellipsis, never collide.
+
+**Window frame.** No stock system title bar on any system: on Windows no white caption bar with the app name, on macOS the traffic lights sit inside ngine's own top strip, under Hyprland nothing at all. The top strip drags the window, double-click behaves as the system does, and no content collides with the window controls.
 
 **Live state.** Recording and replay state is shown where it matters, small and calm, and only when something is live. Meters move when there is sound.
 

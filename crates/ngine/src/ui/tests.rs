@@ -150,7 +150,7 @@ fn idle_capture_shows_the_source_a_record_button_and_why_saving_waits() {
         words(&runtime, "save-blocked"),
         "Turn instant replay on first."
     );
-    assert_eq!(words(&runtime, "record-toggle-keys"), "⌃ ⌥ R");
+    assert_eq!(words(&runtime, "record-toggle-keys"), caps("ctrl+alt+r"));
     assert!(!shows(&runtime, "banners"));
 }
 
@@ -374,7 +374,7 @@ fn a_shorter_buffer_shortens_the_custom_save_length() {
 #[test]
 fn the_hotkey_recorder_takes_the_pressed_keys() {
     let mut runtime = settings(Section::Hotkeys);
-    assert_eq!(words(&runtime, "hotkey-4-caps"), "⌃ ⌥ M");
+    assert_eq!(words(&runtime, "hotkey-4-caps"), caps("ctrl+alt+m"));
     press(&mut runtime, "hotkey-4");
     assert!(runtime.state.is_capturing(hotkeys::MARKER));
     assert_eq!(
@@ -413,7 +413,10 @@ fn a_hotkey_another_action_has_is_refused_with_its_name() {
     assert_eq!(runtime.state.settings.hotkeys.marker, "ctrl+alt+m");
     assert_eq!(
         words(&runtime, "hotkey-4-row-hint"),
-        "⌃ ⌥ R is already used for “Start or stop recording”"
+        format!(
+            "{} is already used for “Start or stop recording”",
+            caps("ctrl+alt+r")
+        )
     );
     physical(&mut runtime, PhysicalKeyCode::KeyM, Mods::default());
     assert_eq!(
@@ -613,4 +616,10 @@ fn escape_cancels_the_hotkey_recorder_even_when_it_arrives_as_a_plain_key() {
     runtime.settle_all();
     assert!(runtime.state.capture.is_none());
     assert!(shows(&runtime, "hotkey-4-caps"));
+}
+
+fn caps(accelerator: &str) -> String {
+    hotkeys::keycaps(accelerator)
+        .expect("the test accelerator parses")
+        .join(" ")
 }

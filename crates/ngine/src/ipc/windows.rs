@@ -107,12 +107,16 @@ fn served_from_this_session(stream: &Stream) -> io::Result<bool> {
     Ok(pipe.server_session_id()? == pipe.client_session_id()?)
 }
 
-/// Connects only to the pipe named by the secret in the user's own folder,
-/// and refuses a server from another logon session.
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "the Unix socket version can fail, and both share one signature"
+)]
 pub fn wait_without_limit(_: &Stream) -> io::Result<()> {
     Ok(())
 }
 
+/// Connects only to the pipe named by the secret in the user's own folder,
+/// and refuses a server from another logon session.
 pub fn connect(address: &Address) -> io::Result<Stream> {
     let stream = Stream::connect(pipe_name(address, false)?)?;
     if served_from_this_session(&stream)? {

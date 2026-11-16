@@ -43,10 +43,6 @@ pub fn open_folder(folder: &Path) -> Command {
     command
 }
 
-#[expect(
-    clippy::unnecessary_wraps,
-    reason = "the portal asks for itself, so there is no page, and the callers ask every system alike"
-)]
 pub fn privacy_settings(_: Permission) -> Option<Command> {
     None
 }

@@ -335,9 +335,9 @@ fn sound(p: &Paint, editor: &Editor) -> Option<El> {
 fn precise_trim(p: &Paint, editor: &Editor) -> El {
     let precise = editor.cut == Cut::Exact;
     let hint = if precise {
-        "Re-encodes the ends to cut on the exact frames"
+        "Re-encodes the ends"
     } else {
-        "Cuts at keyframes without re-encoding, so it may start up to 2 s early"
+        "Cuts at keyframes, without re-encoding"
     };
     toggle(
         p,

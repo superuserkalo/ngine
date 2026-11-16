@@ -290,7 +290,7 @@ fn audio(ui: &mut Ui<'_>) -> Vec<El> {
                 toggle(
                     &p,
                     "system-sound",
-                    "Record system sound",
+                    "Record",
                     None,
                     audio.system.enabled,
                     |app| app.edit(|settings| settings.audio.system.enabled ^= true),
@@ -324,7 +324,7 @@ fn audio(ui: &mut Ui<'_>) -> Vec<El> {
         section(
             &p,
             "mixing",
-            "Tracks",
+            "",
             vec![setting(
                 &p,
                 "tracks-row",
@@ -357,7 +357,7 @@ fn microphone_section(p: &Paint, app: &Ngine, microphone: El) -> El {
             toggle(
                 &p,
                 "microphone",
-                "Record the microphone",
+                "Record",
                 None,
                 audio.microphone.enabled,
                 |app| app.edit(|settings| settings.audio.microphone.enabled ^= true),
@@ -468,7 +468,7 @@ fn replay(ui: &mut Ui<'_>) -> Vec<El> {
     let save = amount_row(
         ui,
         "save-length-row",
-        "Custom save length",
+        "Second save button",
         Amount::SaveLength,
         None,
     );
@@ -823,7 +823,7 @@ pub fn sheet(ui: &mut Ui<'_>) {
         .key(format!("settings-{}", section_id(section)))
         .w_full()
         .px(space::S6)
-        .pt(space::S6 + space::S3)
+        .pt(52.0)
         .pb(space::S6)
         .gap(space::S6)
         .children(rows);

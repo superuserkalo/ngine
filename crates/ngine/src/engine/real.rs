@@ -318,7 +318,7 @@ impl RealEngine {
                             _ => TargetKind::Window,
                         },
                         capture.label(),
-                        "Chosen in the system picker",
+                        "",
                     );
                     Event::TargetPicked(self.remember(target, capture))
                 }

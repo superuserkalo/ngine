@@ -127,7 +127,7 @@ fn source(ui: &mut Ui<'_>) -> El {
     let app = ui.app;
     let open = app.popup == Some(Popup::Sources);
     let (glyph, name, detail) = source_words(app);
-    let action = if app.capabilities.lists_targets {
+    let action = if app.capabilities.lists_targets || app.target.is_some() {
         "Change"
     } else {
         "Choose…"
@@ -523,11 +523,7 @@ fn audio_row(p: &Paint, narrow: bool, audio: AudioRow) -> El {
     if let Some(level) = level.filter(|_| on) {
         line = line.child(
             el().key(format!("{key}-meter-box"))
-                .w(if narrow {
-                    METER_WIDTH / 2.0
-                } else {
-                    METER_WIDTH
-                })
+                .w(METER_WIDTH)
                 .child(meter(
                     p,
                     &format!("{key}-meter"),
@@ -560,7 +556,15 @@ fn audio_row(p: &Paint, narrow: bool, audio: AudioRow) -> El {
 
 fn audio(ui: &mut Ui<'_>) -> El {
     let narrow = ui.content_width() < 600.0;
-    let device_width = if narrow { 140.0 } else { DEVICE_WIDTH };
+    let beside = 2.0 * space::S3
+        + 2.0
+        + 16.0
+        + AUDIO_LABEL
+        + METER_WIDTH
+        + 36.0
+        + 5.0 * space::S3
+        + if narrow { 0.0 } else { VOLUME_WIDTH + 48.0 };
+    let device_width = (ui.content_width() - beside).clamp(96.0, DEVICE_WIDTH);
     let system_device =
         system_sound_select(ui, "capture-system-sound", device_width).fill(Color::TRANSPARENT);
     let microphone_device =
@@ -568,7 +572,7 @@ fn audio(ui: &mut Ui<'_>) -> El {
     let p = ui.p;
     let app = ui.app;
     let audio = app.settings.audio;
-    let live = app.status.levels.is_some() || app.meters.moving();
+    let live = app.status.levels.is_some();
     let meters = app.meters;
     let rows = vec![
         audio_row(
@@ -605,14 +609,11 @@ fn audio(ui: &mut Ui<'_>) -> El {
 
 fn recording_words(app: &Ngine) -> String {
     match (&app.status.recording, &app.target) {
-        (Some(recording), _) => {
-            let markers = match recording.markers {
-                0 => String::new(),
-                1 => " · 1 marker".into(),
-                many => format!(" · {many} markers"),
-            };
-            format!("Recording {}{markers}", recording.target.name)
-        }
+        (Some(recording), _) => match recording.markers {
+            0 => String::new(),
+            1 => "1 marker".into(),
+            many => format!("{many} markers"),
+        },
         (None, _) => String::new(),
     }
 }
@@ -676,9 +677,11 @@ fn record(ui: &Ui<'_>) -> El {
         .key("record-words")
         .grow(1.0)
         .min_w(160.0)
+        .min_h(44.0)
+        .justify_center()
         .gap(2.0)
         .child(timer);
-    if running.is_some() {
+    if running.is_some_and(|recording| recording.markers > 0) {
         words = words.child(caption(&p, "recording-state", recording_words(app)));
     }
     let body = row()
@@ -717,11 +720,7 @@ fn replay_words(app: &Ngine) -> String {
                 format::size(replay.bytes)
             )
         }
-        None => format!(
-            "Keeps the last {} ready to save, {}",
-            seconds(app.settings.replay.length_seconds),
-            cost_words(app, app.settings.replay.length_seconds)
-        ),
+        None => cost_words(app, app.settings.replay.length_seconds),
     }
 }
 
@@ -777,12 +776,16 @@ fn save_buttons(p: &Paint, app: &Ngine) -> El {
             hotkeys::SAVE_SHORT,
             Action::SaveShort,
         ))
-        .child(save(
-            "save-custom",
-            &format!("Save last {}", seconds(app.settings.replay.save_seconds)),
-            hotkeys::SAVE_CUSTOM,
-            Action::SaveCustom,
-        ))
+        .children(
+            (app.settings.replay.save_seconds < app.settings.replay.length_seconds).then(|| {
+                save(
+                    "save-custom",
+                    &format!("Save last {}", seconds(app.settings.replay.save_seconds)),
+                    hotkeys::SAVE_CUSTOM,
+                    Action::SaveCustom,
+                )
+            }),
+        )
         .child(save(
             "save-everything",
             "Save whole replay",

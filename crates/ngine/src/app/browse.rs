@@ -26,14 +26,6 @@ impl Kind {
             Self::Recording
         }
     }
-
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Recording => "Recording",
-            Self::Replay => "Replay",
-            Self::Clip => "Clip",
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

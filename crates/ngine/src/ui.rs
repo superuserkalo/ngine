@@ -460,7 +460,10 @@ fn banners(p: &Paint, app: &Ngine, width: f32) -> Option<El> {
         let mut one = problem_banner(p, problem);
         let more = app.problems.len() - 1 + usize::from(app.settings_were_reset);
         if more > 0 {
-            one.detail = format!("{} {more} more after this one.", one.detail);
+            one.detail = match more {
+                1 => format!("{} One more problem after this one.", one.detail),
+                many => format!("{} {many} more problems after this one.", one.detail),
+            };
         }
         banner(p, one, |app| app.dismiss_problem(0))
     } else if app.settings_were_reset {

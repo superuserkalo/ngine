@@ -381,7 +381,7 @@ pub fn segmented(
                 .size(segment_width, inner)
                 .absolute(indicator_left, SEGMENT_PAD)
                 .radius(radius::SM)
-                .fill(p.t.indicator)
+                .fill(p.t.text.alpha(0.16))
                 .shadow(1.0, 3.0, p.t.shadow)
                 .a11y_hidden(),
         );

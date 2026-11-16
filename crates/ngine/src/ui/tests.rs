@@ -204,7 +204,7 @@ fn idle_capture_shows_the_source_a_record_button_and_why_saving_waits() {
     assert!(!shows(&runtime, "recording-state"));
     assert_eq!(
         words(&runtime, "replay-state"),
-        "Keeps the last 1 min ready to save, ≈ 90 MB in memory"
+        "≈ 90 MB in memory"
     );
     assert!(!shows(&runtime, "marker"));
     assert!(dimmed(&runtime, "save-short"));
@@ -255,7 +255,7 @@ fn recording_turns_record_into_stop_with_a_marker_button_and_locks_the_source() 
     press(&mut runtime, "marker");
     assert_eq!(
         words(&runtime, "recording-state"),
-        "Recording Built-in display · 1 marker"
+        "1 marker"
     );
     press(&mut runtime, "record-toggle");
     assert_eq!(words(&runtime, "record-toggle"), "Record");
@@ -320,7 +320,7 @@ fn problems_show_one_banner_at_a_time_with_the_count_of_the_rest() {
         "Capture stopped for a moment and was restarted"
     );
     assert!(
-        words(&runtime, "problem-capture-restarted-detail").ends_with("1 more after this one.")
+        words(&runtime, "problem-capture-restarted-detail").ends_with("One more problem after this one.")
     );
     assert!(!shows(&runtime, "problem-permission-microphone"));
     press(&mut runtime, "problem-capture-restarted-dismiss");

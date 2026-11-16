@@ -148,7 +148,7 @@ impl Inner {
                 "picked-window",
                 TargetKind::Window,
                 "Counter-Strike 2",
-                "Chosen in the system picker",
+                "",
             )));
         }
         let (done, waiting): (Vec<_>, Vec<_>) = std::mem::take(&mut self.saves)

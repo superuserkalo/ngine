@@ -6,7 +6,7 @@ use super::widgets::{
     Select, dialog, empty_state, field, float, float_at, menu, menu_rule, segmented, select, tag,
 };
 use super::{Ui, icons, page, sheet};
-use crate::app::browse::{Filter, Kind, Sort, counted};
+use crate::app::browse::{Filter, Sort, counted};
 use crate::app::{Ngine, Popup, Screen};
 use crate::format;
 use crate::library::Entry;
@@ -20,31 +20,18 @@ const NAME_HEIGHT: f32 = 24.0;
 
 pub const UNREADABLE: &str = "This file cannot be read as a video";
 
-fn total(app: &Ngine) -> String {
-    let bytes = app
-        .library
-        .entries
+fn total(app: &Ngine, shown: &[usize]) -> String {
+    let bytes = shown
         .iter()
+        .filter_map(|index| app.library.entries.get(*index))
         .map(|entry| entry.item.bytes)
         .sum();
-    format!(
-        "{} · {}",
-        counted(app.library.entries.len()),
-        format::size(bytes)
-    )
+    format!("{} · {}", counted(shown.len()), format::size(bytes))
 }
 
 /// What a card says under the name: when, and how large.
 pub fn details(entry: &Entry) -> String {
     format!("{} · {}", entry.date, format::size(entry.item.bytes))
-}
-
-fn kind_colour(p: &Paint, kind: Kind) -> Color {
-    match kind {
-        Kind::Recording => p.t.text_secondary,
-        Kind::Replay => p.accent,
-        Kind::Clip => p.good,
-    }
 }
 
 fn toolbar(ui: &mut Ui<'_>) -> El {
@@ -178,19 +165,11 @@ fn name_line(p: &Paint, app: &Ngine, key: &str, entry: &Entry) -> El {
         )
 }
 
-fn tags(p: &Paint, key: &str, entry: &Entry, kind: Kind) -> El {
+fn tags(p: &Paint, key: &str, entry: &Entry) -> El {
     let mut tags = row()
         .key(format!("{key}-tags"))
         .gap(space::S1 + 2.0)
         .center_y();
-    if !entry.item.name.starts_with(kind.label()) {
-        tags = tags.child(tag(
-            p,
-            &format!("{key}-kind"),
-            kind.label(),
-            kind_colour(p, kind),
-        ));
-    }
     if entry.item.markers > 0 {
         let markers = match entry.item.markers {
             1 => "1 marker".to_owned(),
@@ -220,7 +199,6 @@ fn tags(p: &Paint, key: &str, entry: &Entry, kind: Kind) -> El {
 fn card(p: &Paint, app: &Ngine, index: usize, entry: &Entry, width: f32) -> El {
     let key = format!("item-{index}");
     let selected = app.is_selected(index);
-    let kind = Kind::of(&entry.item.name);
     let mut corner = col()
         .key(format!("{key}-thumbnail"))
         .w_full()
@@ -234,7 +212,7 @@ fn card(p: &Paint, app: &Ngine, index: usize, entry: &Entry, width: f32) -> El {
     if let Some(info) = &entry.item.info {
         corner = corner.child(badge(&format!("{key}-length"), format::timer(info.length)));
     }
-    let tags = tags(p, &key, entry, kind);
+    let tags = tags(p, &key, entry);
     let more = Button::new(&format!("{key}-more"), "More actions")
         .only_icon(&icons::ELLIPSIS)
         .look(Look::Quiet)
@@ -492,7 +470,7 @@ pub fn view(ui: &mut Ui<'_>) -> El {
             content.child(nothing_found(&p))
         } else {
             content.child(grid(ui, &shown)).child(
-                text(total(app))
+                text(total(app, &shown))
                     .key("library-total")
                     .font(CAPTION)
                     .color(p.faint)

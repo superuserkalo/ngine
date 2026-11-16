@@ -74,11 +74,13 @@ run_probe() {
     windows)
       local linker
       linker="$(dirname "$(command -v cl)")/link.exe"
+      ls "$lib"
       (
         cd "$probe_dir"
+        export MSYS2_ARG_CONV_EXCL='*' MSYS_NO_PATHCONV=1
         cl -nologo -c -I"$(native_path "$include")" "$(native_path "$source")" -Foprobe.obj
-        "$linker" -nologo -out:probe.exe probe.obj -libpath:"$(native_path "$lib")" \
-          avformat.lib avcodec.lib avutil.lib
+        "$linker" -nologo -out:probe.exe probe.obj \
+          "$(native_path "$lib/avformat.lib")" "$(native_path "$lib/avcodec.lib")" "$(native_path "$lib/avutil.lib")"
       )
       PATH="$ffmpeg_dir/bin:$PATH" "$probe_dir/probe.exe" $required_encoders
       ;;

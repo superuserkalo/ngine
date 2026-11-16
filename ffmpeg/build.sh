@@ -230,7 +230,7 @@ platform_flags() {
       platform=(
         --extra-cflags="-I$prefix/include"
         --extra-ldflags="-L$prefix/lib"
-        "--extra-ldsoflags=-Wl,-rpath,'\\\$\\\$ORIGIN'"
+        "--extra-ldsoflags=-Wl,-rpath,'\\\$\\\$\\\$\\\$ORIGIN'"
         --enable-vaapi
         --enable-vulkan
         --enable-ffnvcodec
@@ -247,7 +247,7 @@ platform_flags() {
         --target-os=win64
         --arch=x86_64
         --extra-cflags="-I$(native_path "$prefix/include")"
-        --extra-ldflags="-L$(native_path "$prefix/lib")"
+        --extra-ldflags="-libpath:$(native_path "$prefix/lib")"
         --enable-w32threads
         --enable-d3d11va
         --enable-d3d12va

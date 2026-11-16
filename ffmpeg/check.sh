@@ -38,13 +38,13 @@ check_relocatable() {
   case $os in
     macos)
       while IFS= read -r library; do
-        otool -D "$library" | tail -n +2 | grep -q '^@rpath/' ||
+        [[ "$(otool -D "$library" | tail -n +2)" == @rpath/* ]] ||
           die "$(basename "$library") does not use an @rpath install name"
       done < <(shared_libraries)
       ;;
     linux)
       while IFS= read -r library; do
-        readelf -d "$library" | grep -E 'RUNPATH|RPATH' | grep -qF '[$ORIGIN]' ||
+        [[ "$(readelf -d "$library")" == *'path: [$ORIGIN]'* ]] ||
           die "$(basename "$library") does not search \$ORIGIN for its siblings"
       done < <(shared_libraries)
       ;;

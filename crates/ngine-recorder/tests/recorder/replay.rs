@@ -271,6 +271,8 @@ fn setup() -> CaptureSetup {
         target: screen(),
         show_cursor: true,
         app_sound_only: false,
+        sound_of: None,
+        microphone: None,
     }
 }
 

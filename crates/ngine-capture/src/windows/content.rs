@@ -34,17 +34,27 @@ fn screen_from(monitor: Monitor) -> Option<Screen> {
     ))
 }
 
+const MINIMISED_ORIGIN: i32 = -32_000;
+
+fn is_minimised(left: i32, top: i32) -> bool {
+    left <= MINIMISED_ORIGIN && top <= MINIMISED_ORIGIN
+}
+
 fn window_from(window: NativeWindow) -> Option<Window> {
     let title = window.title().ok().filter(|title| !title.is_empty())?;
-    let size = convert::size(window.width().ok()?, window.height().ok()?)?;
+    let rect = window.rect().ok()?;
+    let size = convert::size(rect.right - rect.left, rect.bottom - rect.top)?;
     let process_id = window.process_id().ok();
-    Some(Window::new(
-        WindowId(id_of(window.as_raw_hwnd())),
-        title,
-        window.process_name().unwrap_or_default(),
-        process_id,
-        size,
-    ))
+    Some(
+        Window::new(
+            WindowId(id_of(window.as_raw_hwnd())),
+            title,
+            window.process_name().unwrap_or_default(),
+            process_id,
+            size,
+        )
+        .with_on_screen(!is_minimised(rect.left, rect.top)),
+    )
 }
 
 fn belongs_to_this_process(window: &Window) -> bool {
@@ -114,5 +124,17 @@ pub(super) fn resolve(target: &Target) -> Result<Item, CaptureError> {
             .downcast_ref::<Picked>()
             .map(|picked| Item::Picked(picked.item()))
             .ok_or(CaptureError::TargetGone),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_minimised;
+
+    #[test]
+    fn a_window_parked_at_minus_32000_is_minimised() {
+        assert!(is_minimised(-32_000, -32_000));
+        assert!(!is_minimised(-8, -8));
+        assert!(!is_minimised(-32_000, 120));
     }
 }

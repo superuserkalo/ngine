@@ -213,6 +213,8 @@ fn test_capture(
         target,
         show_cursor: true,
         app_sound_only: false,
+        sound_of: None,
+        microphone: None,
     };
     let recorder =
         Recorder::start(Arc::new(capturer), setup, &config).map_err(|error| error.to_string())?;

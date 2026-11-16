@@ -4,12 +4,13 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use ngine_capture::{
-    Capturer, EndReason, Event, Microphone, PixelFormat, RecvError, Session, SessionOptions,
-    SystemAudio, Target,
+    AudioApp, Capturer, EndReason, Event, Microphone, PixelFormat, RecvError, Session,
+    SessionOptions, SystemAudio, Target,
 };
 
 use crate::error::RecorderError;
 use crate::event::{Events, RecorderEvent};
+use crate::levels::PeakMeter;
 use crate::pipeline::{
     Pipeline, RecorderConfig, RecordingStart, ReplaySaveRequest, ReplaySetup, Status,
 };
@@ -33,6 +34,12 @@ pub struct CaptureSetup {
     /// Record only the sound of the app that [`Target::audio_app`] names,
     /// and everything the computer plays when it names none.
     pub app_sound_only: bool,
+    /// Record only this app's sound, whatever the target. Wins over
+    /// `app_sound_only`.
+    pub sound_of: Option<AudioApp>,
+    /// The [`MicrophoneDevice::id`](ngine_capture::MicrophoneDevice) to
+    /// record, or the system's default microphone.
+    pub microphone: Option<String>,
 }
 
 enum Command {
@@ -63,14 +70,16 @@ fn session_options(
     frame_rate: u32,
     gpu_surfaces: bool,
 ) -> SessionOptions {
-    let system_audio = match (audio.system_gain, setup.app_sound_only) {
-        (None, _) => SystemAudio::Off,
-        (Some(_), true) => SystemAudio::of(&setup.target),
-        (Some(_), false) => SystemAudio::Everything,
+    let system_audio = match (audio.system_gain, &setup.sound_of, setup.app_sound_only) {
+        (None, _, _) => SystemAudio::Off,
+        (Some(_), Some(app), _) => SystemAudio::App(app.clone()),
+        (Some(_), None, true) => SystemAudio::of(&setup.target),
+        (Some(_), None, false) => SystemAudio::Everything,
     };
-    let microphone = match audio.microphone_gain {
-        Some(_) => Microphone::SystemDefault,
-        None => Microphone::Off,
+    let microphone = match (audio.microphone_gain, &setup.microphone) {
+        (None, _) => Microphone::Off,
+        (Some(_), None) => Microphone::SystemDefault,
+        (Some(_), Some(device)) => Microphone::Device(device.clone()),
     };
     SessionOptions::new()
         .with_cursor(setup.show_cursor)
@@ -109,6 +118,7 @@ impl Recorder {
             events: Events::new(event_sender),
             status: Arc::clone(&status),
             stopping: false,
+            peaks: PeakMeter::default(),
         };
         let thread = thread::Builder::new()
             .name("ngine-recorder".to_owned())
@@ -219,6 +229,7 @@ struct Worker {
     events: Events,
     status: Arc<Mutex<Status>>,
     stopping: bool,
+    peaks: PeakMeter,
 }
 
 enum SessionEnd {
@@ -292,8 +303,10 @@ impl Worker {
         }
     }
 
-    fn publish_status(&self) {
-        *self.status.lock().unwrap_or_else(PoisonError::into_inner) = self.pipeline.status();
+    fn publish_status(&mut self) {
+        let mut status = self.pipeline.status();
+        status.levels = self.peaks.report(Instant::now());
+        *self.status.lock().unwrap_or_else(PoisonError::into_inner) = status;
     }
 
     fn run_session(&mut self, session: &Session) -> SessionEnd {
@@ -316,7 +329,12 @@ impl Worker {
                 }
                 Ok(Event::Ended(EndReason::StoppedByUser)) => return SessionEnd::Broke(None),
                 Ok(Event::Ended(_)) | Err(RecvError::Finished) => return SessionEnd::Stop,
-                Ok(event) => self.pipeline.handle(&event),
+                Ok(event) => {
+                    if let Event::Audio(buffer) = &event {
+                        self.peaks.take(buffer);
+                    }
+                    self.pipeline.handle(&event)
+                }
                 Err(RecvError::TimedOut) => Ok(()),
             };
             let ticked = handled.and_then(|()| match session.now() {

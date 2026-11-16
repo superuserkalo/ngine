@@ -213,7 +213,7 @@ pub(super) fn only_audible(app_process_id: u64) -> Result<SCContentFilter, Captu
 
 pub(super) fn list() -> Result<Targets, CaptureError> {
     let content = SCShareableContent::create()
-        .with_on_screen_windows_only(true)
+        .with_on_screen_windows_only(false)
         .with_exclude_desktop_windows(true)
         .get()
         .map_err(|error| convert::error_from(&error))?;
@@ -257,19 +257,28 @@ fn listed_window(window: &SCWindow) -> Option<Window> {
         return None;
     }
     let frame = window.frame();
-    let size = one_window(window)
-        .ok()
-        .and_then(|filter| pixel_size(&filter))
-        .or_else(|| {
-            convert::whole_number(frame.size.width)
-                .zip(convert::whole_number(frame.size.height))
-                .map(|(width, height)| Size::new(width, height))
-        })?;
-    Some(Window::new(
-        WindowId(u64::from(window.window_id())),
-        title,
-        app.application_name(),
-        process_id_of(&app),
-        size,
-    ))
+    let on_screen = window.is_on_screen();
+    let from_frame = || {
+        convert::whole_number(frame.size.width)
+            .zip(convert::whole_number(frame.size.height))
+            .map(|(width, height)| Size::new(width, height))
+    };
+    let size = if on_screen {
+        one_window(window)
+            .ok()
+            .and_then(|filter| pixel_size(&filter))
+            .or_else(from_frame)
+    } else {
+        from_frame()
+    }?;
+    Some(
+        Window::new(
+            WindowId(u64::from(window.window_id())),
+            title,
+            app.application_name(),
+            process_id_of(&app),
+            size,
+        )
+        .with_on_screen(on_screen),
+    )
 }

@@ -13,6 +13,7 @@ use crate::audio::AudioStage;
 use crate::clip::{self, ClipJob, EpochStreams};
 use crate::error::RecorderError;
 use crate::event::{Events, RecorderEvent};
+use crate::levels::Peaks;
 use crate::replay::{
     AfterSave, BackendChoice, BackendKind, ReplayBuffer, ReplayConfig, ReplayLength, SaveRange,
 };
@@ -100,6 +101,8 @@ pub struct Status {
     pub frames_repeated: u64,
     /// Where the last captured frame lived when it arrived.
     pub frames_arrive_as: Option<SurfaceKind>,
+    /// How loud each sound source was lately.
+    pub levels: Peaks,
 }
 
 struct Stage {
@@ -825,6 +828,7 @@ impl Pipeline {
             frames_captured: self.frames_captured,
             frames_repeated: self.frames_repeated,
             frames_arrive_as: self.frames_arrive_as,
+            levels: Peaks::default(),
         }
     }
 

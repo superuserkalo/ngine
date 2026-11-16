@@ -40,6 +40,8 @@ pub struct Window {
     pub process_id: Option<u32>,
     /// In pixels.
     pub size: Size,
+    /// False for a window that is minimised or on another desktop or Space.
+    pub on_screen: bool,
 }
 
 impl Window {
@@ -56,7 +58,14 @@ impl Window {
             app_name: app_name.into(),
             process_id,
             size,
+            on_screen: true,
         }
+    }
+
+    #[must_use]
+    pub fn with_on_screen(mut self, on_screen: bool) -> Self {
+        self.on_screen = on_screen;
+        self
     }
 }
 

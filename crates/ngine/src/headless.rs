@@ -338,6 +338,8 @@ pub fn run(command: &str, arguments: &[String]) -> Result<(), String> {
         target,
         show_cursor: true,
         app_sound_only: !request.all_sound,
+        sound_of: None,
+        microphone: None,
     };
     let recorder =
         Recorder::start(Arc::new(capturer), setup, &config).map_err(|error| error.to_string())?;

@@ -223,20 +223,23 @@ impl Player {
     /// window draws.
     pub fn advance(&self) -> Playhead {
         let mut state = self.shared.lock();
-        let position = state.position();
+        let mut position = state.position();
         if !state.work.seeking {
+            let mut newest_shown = position;
             while state
                 .pictures
                 .front()
                 .is_some_and(|(micros, _)| *micros <= position + FRAME_TOLERANCE_MICROS)
             {
-                if let Some((_, picture)) = state.pictures.pop_front() {
+                if let Some((micros, picture)) = state.pictures.pop_front() {
+                    newest_shown = newest_shown.max(micros);
                     state.shown = Some(picture);
                     state.fresh = true;
                 }
             }
             let over = state.work.drained && state.pictures.is_empty();
             if state.playing && (over || position >= state.media.length) {
+                position = newest_shown.min(state.media.length.max(position));
                 state.playing = false;
                 state.rest_at(position);
             }

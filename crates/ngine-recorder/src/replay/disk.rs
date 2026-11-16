@@ -4,38 +4,30 @@ use std::io::{self, BufReader, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use super::backend::{Backend, StoredGroup};
-use super::budget::BackendKind;
 use super::error::ReplayError;
 use super::packet::{Packet, StreamIndex};
 use super::session::Session;
 use super::time::Ticks;
+use super::unit::Sequenced;
 
 const WRITE_BUFFER_BYTES: usize = 64 * 1024;
 
 pub(crate) type Sink = Box<dyn Write + Send>;
 pub(crate) type CreateSink = Box<dyn FnMut(&Path) -> io::Result<Sink> + Send>;
 
-pub(crate) struct DiskBackend {
+pub(crate) struct DiskStore {
     create_sink: CreateSink,
-    next_group_number: u64,
-    open: Option<OpenGroupFile>,
+    next_unit_number: u64,
     session: Arc<Session>,
 }
 
-struct OpenGroupFile {
-    writer: BufWriter<Sink>,
-    entries: Vec<PacketEntry>,
-    file: Arc<GroupFile>,
-}
-
 #[derive(Debug)]
-struct GroupFile {
+struct UnitFile {
     path: PathBuf,
     _session: Arc<Session>,
 }
 
-impl Drop for GroupFile {
+impl Drop for UnitFile {
     fn drop(&mut self) {
         drop(fs::remove_file(&self.path));
     }
@@ -43,6 +35,7 @@ impl Drop for GroupFile {
 
 #[derive(Debug, Clone, Copy)]
 struct PacketEntry {
+    sequence: u64,
     stream: StreamIndex,
     pts: Ticks,
     dts: Ticks,
@@ -51,7 +44,7 @@ struct PacketEntry {
     len: usize,
 }
 
-impl DiskBackend {
+impl DiskStore {
     pub(crate) fn create(folder: &Path) -> Result<Self, ReplayError> {
         Self::with_sink(folder, Box::new(create_file_sink))
     }
@@ -59,9 +52,36 @@ impl DiskBackend {
     pub(crate) fn with_sink(folder: &Path, create_sink: CreateSink) -> Result<Self, ReplayError> {
         Ok(Self {
             create_sink,
-            next_group_number: 0,
-            open: None,
+            next_unit_number: 0,
             session: Arc::new(Session::create(folder)?),
+        })
+    }
+
+    pub(crate) fn write(&mut self, packets: &[Sequenced]) -> Result<DiskUnit, ReplayError> {
+        let path = self.session.unit_path(self.next_unit_number);
+        self.next_unit_number += 1;
+        let sink = (self.create_sink)(&path)
+            .map_err(|error| ReplayError::storage("create a replay file", &path, error))?;
+        let file = Arc::new(UnitFile {
+            path,
+            _session: Arc::clone(&self.session),
+        });
+        write_payloads(sink, packets)
+            .map_err(|error| ReplayError::storage("write a replay file", &file.path, error))?;
+        Ok(DiskUnit {
+            entries: packets
+                .iter()
+                .map(|sequenced| PacketEntry {
+                    sequence: sequenced.sequence,
+                    stream: sequenced.packet.stream,
+                    pts: sequenced.packet.pts,
+                    dts: sequenced.packet.dts,
+                    duration: sequenced.packet.duration,
+                    keyframe: sequenced.packet.keyframe,
+                    len: sequenced.packet.data.len(),
+                })
+                .collect(),
+            file,
         })
     }
 }
@@ -70,148 +90,81 @@ fn create_file_sink(path: &Path) -> io::Result<Sink> {
     Ok(Box::new(File::create_new(path)?))
 }
 
-fn no_open_group() -> ReplayError {
-    ReplayError::storage(
-        "use a replay group file before opening one",
-        PathBuf::new(),
-        io::Error::from(io::ErrorKind::NotFound),
-    )
-}
-
-impl Backend for DiskBackend {
-    fn kind(&self) -> BackendKind {
-        BackendKind::Disk
+fn write_payloads(sink: Sink, packets: &[Sequenced]) -> io::Result<()> {
+    let mut writer = BufWriter::with_capacity(WRITE_BUFFER_BYTES, sink);
+    for sequenced in packets {
+        writer.write_all(&sequenced.packet.data)?;
     }
-
-    fn open_group(&mut self) -> Result<(), ReplayError> {
-        self.open = None;
-        let path = self.session.group_path(self.next_group_number);
-        self.next_group_number += 1;
-        match (self.create_sink)(&path) {
-            Ok(sink) => {
-                self.open = Some(OpenGroupFile {
-                    writer: BufWriter::with_capacity(WRITE_BUFFER_BYTES, sink),
-                    entries: Vec::new(),
-                    file: Arc::new(GroupFile {
-                        path,
-                        _session: Arc::clone(&self.session),
-                    }),
-                });
-                Ok(())
-            }
-            Err(error) => Err(ReplayError::storage(
-                "create a replay group file",
-                path,
-                error,
-            )),
-        }
-    }
-
-    fn append(&mut self, packet: &Packet) -> Result<(), ReplayError> {
-        let open = self.open.as_mut().ok_or_else(no_open_group)?;
-        open.writer.write_all(&packet.data).map_err(|error| {
-            ReplayError::storage("write to a replay group file", &open.file.path, error)
-        })?;
-        open.entries.push(PacketEntry {
-            stream: packet.stream,
-            pts: packet.pts,
-            dts: packet.dts,
-            duration: packet.duration,
-            keyframe: packet.keyframe,
-            len: packet.data.len(),
-        });
-        Ok(())
-    }
-
-    fn snapshot_open_group(&mut self) -> Result<StoredGroup, ReplayError> {
-        let open = self.open.as_mut().ok_or_else(no_open_group)?;
-        open.writer.flush().map_err(|error| {
-            ReplayError::storage("write to a replay group file", &open.file.path, error)
-        })?;
-        Ok(StoredGroup::Disk(DiskGroup {
-            entries: open.entries.as_slice().into(),
-            file: Arc::clone(&open.file),
-        }))
-    }
-
-    fn seal_open_group(&mut self) -> Result<StoredGroup, ReplayError> {
-        let OpenGroupFile {
-            mut writer,
-            entries,
-            file,
-        } = self.open.take().ok_or_else(no_open_group)?;
-        writer.flush().map_err(|error| {
-            ReplayError::storage("write to a replay group file", &file.path, error)
-        })?;
-        drop(writer);
-        Ok(StoredGroup::Disk(DiskGroup {
-            entries: entries.into(),
-            file,
-        }))
-    }
-
-    fn discard_open_group(&mut self) {
-        self.open = None;
-    }
+    writer.flush()
 }
 
 #[derive(Clone)]
-pub(crate) struct DiskGroup {
+pub(crate) struct DiskUnit {
     entries: Arc<[PacketEntry]>,
-    file: Arc<GroupFile>,
+    file: Arc<UnitFile>,
 }
 
-impl fmt::Debug for DiskGroup {
+impl fmt::Debug for DiskUnit {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
-            .debug_struct("DiskGroup")
+            .debug_struct("DiskUnit")
             .field("path", &self.file.path)
             .field("packets", &self.entries.len())
             .finish()
     }
 }
 
-impl DiskGroup {
-    pub(crate) fn reader(&self) -> Result<DiskGroupReader, ReplayError> {
-        let file = File::open(&self.file.path).map_err(|error| {
-            ReplayError::storage("open a replay group file", &self.file.path, error)
-        })?;
-        Ok(DiskGroupReader {
+impl DiskUnit {
+    pub(crate) fn reader(&self) -> Result<DiskUnitReader, ReplayError> {
+        let file = File::open(&self.file.path)
+            .map_err(|error| ReplayError::storage("open a replay file", &self.file.path, error))?;
+        Ok(DiskUnitReader {
             reader: BufReader::new(file),
             next: 0,
-            group: self.clone(),
+            unit: self.clone(),
         })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn path(&self) -> &Path {
+        &self.file.path
     }
 }
 
 #[derive(Debug)]
-pub(crate) struct DiskGroupReader {
+pub(crate) struct DiskUnitReader {
     reader: BufReader<File>,
     next: usize,
-    group: DiskGroup,
+    unit: DiskUnit,
 }
 
-impl Iterator for DiskGroupReader {
-    type Item = Result<Packet, ReplayError>;
+impl Iterator for DiskUnitReader {
+    type Item = Result<Sequenced, ReplayError>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let entry = *self.group.entries.get(self.next)?;
+        let entry = *self.unit.entries.get(self.next)?;
         self.next += 1;
         let mut data = vec![0; entry.len];
         Some(match self.reader.read_exact(&mut data) {
-            Ok(()) => Ok(Packet {
-                stream: entry.stream,
-                pts: entry.pts,
-                dts: entry.dts,
-                duration: entry.duration,
-                keyframe: entry.keyframe,
-                data: data.into(),
+            Ok(()) => Ok(Sequenced {
+                sequence: entry.sequence,
+                packet: Packet {
+                    stream: entry.stream,
+                    pts: entry.pts,
+                    dts: entry.dts,
+                    duration: entry.duration,
+                    keyframe: entry.keyframe,
+                    data: data.into(),
+                },
             }),
-            Err(error) => Err(ReplayError::storage(
-                "read a replay group file",
-                &self.group.file.path,
-                error,
-            )),
+            Err(error) => {
+                self.next = self.unit.entries.len();
+                Err(ReplayError::storage(
+                    "read a replay file",
+                    &self.unit.file.path,
+                    error,
+                ))
+            }
         })
     }
 }

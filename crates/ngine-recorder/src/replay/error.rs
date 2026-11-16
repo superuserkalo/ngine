@@ -20,6 +20,7 @@ pub enum ReplayError {
         previous: Ticks,
         pts: Ticks,
     },
+    NoDiskFolder,
     Storage {
         action: &'static str,
         path: PathBuf,
@@ -59,6 +60,10 @@ impl fmt::Display for ReplayError {
                 "a video keyframe at {} does not come after the previous one at {}; begin a new epoch when timestamps restart",
                 pts.0, previous.0
             ),
+            Self::NoDiskFolder => write!(
+                formatter,
+                "a replay buffer on disk needs a folder and none was given"
+            ),
             Self::Storage {
                 action,
                 path,
@@ -77,6 +82,7 @@ impl Error for ReplayError {
         match self {
             Self::Storage { source, .. } => Some(source),
             Self::LengthOutOfRange { .. }
+            | Self::NoDiskFolder
             | Self::NegativeDuration { .. }
             | Self::KeyframeNotAfterPrevious { .. } => None,
         }

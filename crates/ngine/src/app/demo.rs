@@ -205,6 +205,9 @@ pub const SCENES: &[Scene] = &[
     }),
     ("replay-saved", replay_saved),
     ("sources-open", Ngine::open_sources),
+    ("capture-microphone-open", |app| {
+        app.open_popup(Popup::Choices("capture-microphone".into()));
+    }),
     ("replay-length-open", |app| {
         app.open_popup(Popup::Choices("replay-length".into()));
     }),
@@ -230,7 +233,35 @@ pub const SCENES: &[Scene] = &[
         section(app, Section::Hotkeys);
         app.begin_hotkey(hotkeys::SAVE_SHORT);
     }),
+    ("settings-hotkey-held", |app| {
+        section(app, Section::Hotkeys);
+        app.begin_hotkey(hotkeys::SAVE_SHORT);
+        if let Some(capture) = &mut app.capture {
+            capture.held = rune::Mods {
+                ctrl: true,
+                shift: true,
+                ..rune::Mods::default()
+            };
+        }
+    }),
     ("settings-hotkey-conflict", settings_hotkey_conflict),
+    ("settings-microphone-open", |app| {
+        section(app, Section::Audio);
+        app.open_popup(Popup::Choices("settings-microphone".into()));
+    }),
+    ("settings-microphone-missing", |app| {
+        app.edit(|settings| settings.inputs.microphone = Some("unplugged".into()));
+        section(app, Section::Audio);
+    }),
+    ("settings-frame-rate-typed-wrong", |app| {
+        section(app, Section::Video);
+        app.draft_of(crate::app::Amount::FrameRate).text = "500".into();
+        app.drafted();
+    }),
+    ("settings-budget-presets", |app| {
+        section(app, Section::Replay);
+        app.open_popup(Popup::Choices("settings-memory-budget-presets".into()));
+    }),
     ("settings-hotkey-problem", settings_hotkey_problem),
     ("settings-storage", |app| section(app, Section::Storage)),
     ("settings-general", |app| section(app, Section::General)),
@@ -274,6 +305,24 @@ pub const SCENES: &[Scene] = &[
     ("editor-playing", |app| {
         editor(app);
         in_editor(app, |editor| editor.playing = true);
+    }),
+    ("editor-hover", |app| {
+        editor(app);
+        in_editor(app, |editor| editor.hovered = true);
+    }),
+    ("editor-full-screen", |app| {
+        editor(app);
+        app.watch_full_screen(false);
+    }),
+    ("editor-full-screen-resting", |app| {
+        editor(app);
+        app.watch_full_screen(false);
+        in_editor(app, |editor| {
+            editor.playing = true;
+            if let Some(watching) = &mut editor.watching {
+                watching.moved_at = -crate::editor::CONTROLS_LINGER_SECONDS * 4.0;
+            }
+        });
     }),
     ("editor-keys", |app| {
         editor(app);

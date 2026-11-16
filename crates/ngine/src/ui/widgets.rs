@@ -28,7 +28,7 @@ const MENU_ITEM: f32 = 30.0;
 const MENU_WIDTH: f32 = 220.0;
 const POPUP_GAP: f32 = 4.0;
 const DIALOG_WIDTH: f32 = 380.0;
-const LIST_HEIGHT: f32 = 300.0;
+const LIST_HEIGHT: f32 = 380.0;
 const METER: f32 = 3.0;
 const LOUD: f32 = 0.9;
 const CLIPPING: f32 = 0.985;
@@ -222,18 +222,25 @@ pub fn keycap(p: &Paint, key: String, cap: &str) -> El {
         .child(text(cap).font(KEYCAP).color(p.t.text))
 }
 
-/// The keys of a hotkey, each drawn as the cap of a key.
+/// How the system writes a combination of keys: glyphs run together, as
+/// macOS writes ⌃⌥R, and names joined by a plus, as Ctrl+Alt+R elsewhere.
+pub fn written_keys(caps: &[String]) -> String {
+    let glyphs = caps
+        .iter()
+        .rev()
+        .skip(1)
+        .all(|cap| cap.chars().count() == 1);
+    caps.join(if glyphs { "" } else { "+" })
+}
+
+/// The keys of a hotkey, drawn on one cap the way the system writes them.
 pub fn keycaps(p: &Paint, key: &str, caps: &[String]) -> El {
-    let mut line = row()
+    row()
         .key(key)
         .role("group")
         .label(caps.join(" "))
-        .gap(3.0)
-        .center_y();
-    for (index, cap) in caps.iter().enumerate() {
-        line = line.child(keycap(p, format!("{key}-{index}"), cap).a11y_hidden());
-    }
-    line
+        .center_y()
+        .child(keycap(p, format!("{key}-cap"), &written_keys(caps)).a11y_hidden())
 }
 
 pub fn caption(p: &Paint, key: &str, words: impl Into<String>) -> El {
@@ -614,7 +621,7 @@ pub fn amount_field(p: &Paint, app: &Ngine, layer: &mut Vec<El>, amount: Amount,
             .collect::<Vec<_>>();
         let list = surface(p, &format!("{popup}-choices"), "listbox", amount.label())
             .focus_group()
-            .min_w(width.max(160.0))
+            .min_w(width.max(220.0))
             .max_h(LIST_HEIGHT)
             .scroll(ScrollSpec {
                 stick_bottom: false,
@@ -777,12 +784,14 @@ pub fn section_title(p: &Paint, key: &str, title: &str) -> El {
         .color(p.t.text_secondary)
 }
 
+/// A card of rows under a quiet title. An empty title draws none, for a
+/// page that holds a single card.
 pub fn section(p: &Paint, key: &str, title: &str, rows: Vec<El>) -> El {
-    col()
-        .key(key)
-        .gap(space::S2)
-        .child(section_title(p, &format!("{key}-title"), title).ml(space::S1))
-        .child(card(p, &format!("{key}-card"), rows))
+    let mut group = col().key(key).gap(space::S2);
+    if !title.is_empty() {
+        group = group.child(section_title(p, &format!("{key}-title"), title).ml(space::S1));
+    }
+    group.child(card(p, &format!("{key}-card"), rows))
 }
 
 pub fn empty_state(
@@ -1145,7 +1154,7 @@ pub fn select(
             .collect::<Vec<_>>();
         let list = surface(p, &format!("{key}-choices"), "listbox", label)
             .focus_group()
-            .min_w(width.max(if detailed { 260.0 } else { 180.0 }))
+            .min_w(width.max(if detailed { 320.0 } else { 200.0 }))
             .max_h(LIST_HEIGHT)
             .scroll(ScrollSpec {
                 stick_bottom: false,

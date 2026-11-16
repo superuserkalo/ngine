@@ -22,7 +22,7 @@ const HOTKEY_WIDTH: f32 = 160.0;
 const SLIDER_WIDTH: f32 = 120.0;
 const SHEET_MARGIN: f32 = 32.0;
 const WIDEST_SHEET: f32 = 860.0;
-const TALLEST_SHEET: f32 = 640.0;
+const TALLEST_SHEET: f32 = 560.0;
 const SHEET_RADIUS: f32 = 14.0;
 
 pub const NOT_SET: &str = "Not set";
@@ -93,9 +93,12 @@ fn list(ui: &Ui<'_>, width: f32) -> El {
         } else {
             p.t.text_secondary
         };
+        let mut tab = row();
+        if current {
+            tab = tab.autofocus();
+        }
         items = items.child(
-            row()
-                .key(format!("section-{}", section_id(section)))
+            tab.key(format!("section-{}", section_id(section)))
                 .role("tab")
                 .label(section_label(section))
                 .checked(current)
@@ -193,8 +196,6 @@ fn video(ui: &mut Ui<'_>) -> Vec<El> {
     let app = ui.app;
     let video = app.settings.video;
     let codecs = app.capabilities.codecs.clone();
-    let codec_hint = (codecs.len() < Codec::ALL.len())
-        .then(|| "Only the codecs this computer can encode are offered".to_owned());
     let codec = segmented(
         &p,
         Segments {
@@ -235,9 +236,9 @@ fn video(ui: &mut Ui<'_>) -> Vec<El> {
     vec![section(
         &p,
         "video",
-        "Encoding",
+        "",
         vec![
-            setting(&p, "codec-row", "Codec", codec_hint, codec),
+            setting(&p, "codec-row", "Codec", None, codec),
             setting(
                 &p,
                 "quality-row",
@@ -609,7 +610,7 @@ fn hotkeys_section(ui: &Ui<'_>) -> Vec<El> {
         section(
             p,
             "hotkeys",
-            "Work in any app",
+            "",
             (0..hotkeys::COUNT)
                 .map(|slot| hotkey(p, ui.app, slot))
                 .collect(),
@@ -617,8 +618,9 @@ fn hotkeys_section(ui: &Ui<'_>) -> Vec<El> {
         caption(
             p,
             "hotkeys-commands",
-            "Where the system keeps hotkeys to itself, bind keys to a command instead, such as: ngine replay save --last 30s",
+            "Hotkeys work in every app. Where the system keeps them to itself, bind a key to a command such as ngine replay save --last 30s.",
         )
+        .max_w(520.0)
         .mx(space::S1),
     ]
 }
@@ -692,7 +694,7 @@ fn storage(ui: &Ui<'_>) -> Vec<El> {
     vec![section(
         p,
         "folders",
-        "Folders",
+        "",
         vec![
             folder_row(
                 p,
@@ -727,12 +729,12 @@ fn general(ui: &Ui<'_>) -> Vec<El> {
     vec![section(
         p,
         "startup",
-        "Starting",
+        "",
         vec![toggle(
             p,
             "start-at-login",
             "Start ngine when you log in",
-            Some("It starts in the tray, without opening this window".into()),
+            None,
             ui.app.settings.start_at_login,
             |app| app.edit(|settings| settings.start_at_login ^= true),
         )],
@@ -761,7 +763,7 @@ fn about(ui: &Ui<'_>) -> Vec<El> {
         "about-licences",
         "Free software under the MIT licence. Icons from Lucide, under the ISC licence.",
     ));
-    vec![section(p, "about", "This build", vec![words])]
+    vec![words]
 }
 
 fn reset_question(ui: &mut Ui<'_>, section: Section) {
@@ -780,7 +782,7 @@ fn reset_question(ui: &mut Ui<'_>, section: Section) {
             "Reset the {} settings?",
             section_label(section).to_lowercase()
         ),
-        "They go back to what a fresh install has. Nothing else changes.".into(),
+        "Only this section changes.".into(),
         actions,
     );
 }
@@ -810,7 +812,8 @@ pub fn sheet(ui: &mut Ui<'_>) {
     }
     let floating = ui.layer.split_off(start);
     let width = (ui.window.0 - 2.0 * SHEET_MARGIN).clamp(1.0, WIDEST_SHEET);
-    let height = (ui.window.1 - 2.0 * SHEET_MARGIN).clamp(1.0, TALLEST_SHEET);
+    let top = super::TITLEBAR.max(SHEET_MARGIN);
+    let height = (ui.window.1 - top - SHEET_MARGIN / 2.0).clamp(1.0, TALLEST_SHEET);
     let list_width = if width < 760.0 {
         NARROW_LIST_WIDTH
     } else {
@@ -828,7 +831,6 @@ pub fn sheet(ui: &mut Ui<'_>) {
         content = content.child(
             row().key("section-foot").child(
                 Button::new("section-reset", "Reset to defaults")
-                    .look(Look::Quiet)
                     .help(format!(
                         "Put the {} settings back to what a fresh install has",
                         section_label(section).to_lowercase()
@@ -868,6 +870,7 @@ pub fn sheet(ui: &mut Ui<'_>) {
             .w_full()
             .h_full()
             .center()
+            .pt(top - SHEET_MARGIN / 2.0)
             .fill(Color::BLACK.alpha(0.45))
             .on_press(close)
             .child(panel),

@@ -128,10 +128,8 @@ fn the_library_lists_every_video_with_its_length_size_date_and_actions() {
     );
     assert_eq!(words(&runtime, "item-0-length"), "04:12");
     assert_eq!(words(&runtime, "item-0-markers"), "2 markers");
-    assert_eq!(words(&runtime, "item-1-kind"), "Replay");
-    assert_eq!(words(&runtime, "item-2-kind"), "Clip");
     for index in 0..5 {
-        for part in ["thumbnail", "more", "kind"] {
+        for part in ["thumbnail", "more"] {
             let key = format!("item-{index}-{part}");
             assert!(shows(&runtime, &key), "{key}");
         }

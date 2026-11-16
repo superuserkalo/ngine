@@ -14,7 +14,7 @@ use crate::platform;
 
 const SMALLEST_CARD: f32 = 200.0;
 const GRID_GAP: f32 = 12.0;
-const FILTER_WIDTH: f32 = 72.0;
+const FILTER_WIDTH: f32 = 84.0;
 const SORT_WIDTH: f32 = 136.0;
 const NAME_HEIGHT: f32 = 24.0;
 
@@ -182,13 +182,15 @@ fn tags(p: &Paint, key: &str, entry: &Entry, kind: Kind) -> El {
     let mut tags = row()
         .key(format!("{key}-tags"))
         .gap(space::S1 + 2.0)
-        .center_y()
-        .child(tag(
+        .center_y();
+    if !entry.item.name.starts_with(kind.label()) {
+        tags = tags.child(tag(
             p,
             &format!("{key}-kind"),
             kind.label(),
             kind_colour(p, kind),
         ));
+    }
     if entry.item.markers > 0 {
         let markers = match entry.item.markers {
             1 => "1 marker".to_owned(),
@@ -331,7 +333,7 @@ fn item_menu(ui: &mut Ui<'_>) {
     let shown = file.clone();
     let items = vec![
         MenuItem::new("menu-open", "Open")
-            .icon(&icons::SCISSORS)
+            .icon(&icons::PLAY)
             .detail("Enter")
             .blocked((!readable).then(|| UNREADABLE.to_owned()))
             .build(&p, "menuitem", move |app, _| {
@@ -479,14 +481,7 @@ pub fn view(ui: &mut Ui<'_>) -> El {
     let app = ui.app;
     let mut content = sheet(ui, "library").gap(space::S3 + space::S1);
     if app.library.entries.is_empty() {
-        content = content
-            .child(
-                row()
-                    .key("library-header")
-                    .child(spacer())
-                    .child(folder_button(&p, app)),
-            )
-            .child(empty(ui));
+        content = content.child(empty(ui));
     } else {
         content = content.child(toolbar(ui).child(folder_button(&p, app)));
         if let Some(bar) = selection_bar(&p, app) {

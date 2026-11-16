@@ -201,21 +201,15 @@ fn idle_capture_shows_the_source_a_record_button_and_why_saving_waits() {
     assert_eq!(words(&runtime, "source-name"), "Built-in display");
     assert_eq!(words(&runtime, "record-toggle"), "Record");
     assert_eq!(words(&runtime, "elapsed"), "00:00");
-    assert_eq!(
-        words(&runtime, "recording-state"),
-        "Ready to record Built-in display"
-    );
+    assert!(!shows(&runtime, "recording-state"));
     assert_eq!(
         words(&runtime, "replay-state"),
-        "Off. When on, keeps the last 1 min ready to save, ≈ 90 MB in memory."
+        "Keeps the last 1 min ready to save, ≈ 90 MB in memory"
     );
     assert!(!shows(&runtime, "marker"));
     assert!(dimmed(&runtime, "save-short"));
     assert_eq!(help(&runtime, "save-short"), super::capture::NO_REPLAY);
-    assert_eq!(
-        words(&runtime, "save-blocked"),
-        "Turn instant replay on first."
-    );
+
     assert_eq!(words(&runtime, "record-toggle-keys"), caps("ctrl+alt+r"));
     assert!(!shows(&runtime, "banners"));
 }
@@ -228,8 +222,10 @@ fn the_source_menu_lists_each_app_once_with_its_windows_under_it() {
         assert!(shows(&runtime, key), "{key}");
     }
     assert!(!shows(&runtime, "sources-windows"));
-    assert_eq!(words(&runtime, "source-app-3-detail"), "All 3 windows");
-    assert_eq!(words(&runtime, "source-app-2-detail"), "All 2 windows");
+    assert_eq!(words(&runtime, "source-app-3-detail"), "3 windows");
+    assert_eq!(words(&runtime, "source-app-2-detail"), "2 windows");
+    assert!(shows(&runtime, "source-app-1"));
+    assert!(!shows(&runtime, "source-window-1"));
     let app = element(&runtime, "source-app-3").rect;
     let first = element(&runtime, "source-window-4").rect;
     let last = element(&runtime, "source-window-6").rect;

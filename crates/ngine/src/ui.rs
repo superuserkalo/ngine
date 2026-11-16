@@ -266,13 +266,7 @@ fn sidebar(ui: &Ui<'_>) -> El {
     };
     let mut brand = row().key("brand").h(28.0).center_y();
     brand = if narrow {
-        brand.center().child(
-            text("n")
-                .key("name")
-                .font(HEADING)
-                .color(p.t.text)
-                .a11y_hidden(),
-        )
+        brand
     } else {
         brand
             .px(space::S2 + 2.0)
@@ -322,7 +316,7 @@ struct Banner {
 fn open_settings_button(p: &Paint, key: &str, permission: Permission) -> Option<El> {
     platform::has_privacy_settings(permission).then(|| {
         Button::new(key, &format!("Open {}", platform::SYSTEM_SETTINGS))
-            .look(Look::Primary)
+            .look(Look::Plain)
             .build(p, move |app| app.open_privacy_settings(permission))
     })
 }
@@ -372,7 +366,7 @@ fn problem_banner(p: &Paint, problem: &Problem) -> Banner {
             serious: true,
             action: Some(
                 Button::new("problem-capture-lost-action", "Retry")
-                    .look(Look::Primary)
+                    .look(Look::Plain)
                     .build(p, Ngine::retry_capture),
             ),
         },
@@ -383,7 +377,7 @@ fn problem_banner(p: &Paint, problem: &Problem) -> Banner {
             serious: true,
             action: Some(
                 Button::new("problem-write-failed-action", "Choose another folder")
-                    .look(Look::Primary)
+                    .look(Look::Plain)
                     .build_tx(p, choose_folder(Folder::Output)),
             ),
         },
@@ -394,7 +388,7 @@ fn problem_banner(p: &Paint, problem: &Problem) -> Banner {
             serious: true,
             action: Some(
                 Button::new("problem-encoder-failed-action", "Open video settings")
-                    .look(Look::Primary)
+                    .look(Look::Plain)
                     .build(p, |app| app.show_section(Section::Video)),
             ),
         },
@@ -408,7 +402,7 @@ fn problem_banner(p: &Paint, problem: &Problem) -> Banner {
             serious: true,
             action: Some(
                 Button::new("problem-disk-full-action", "Choose another folder")
-                    .look(Look::Primary)
+                    .look(Look::Plain)
                     .build_tx(p, choose_folder(Folder::Output)),
             ),
         },
@@ -461,7 +455,7 @@ fn banner(p: &Paint, banner: Banner, dismiss: impl Fn(&mut Ngine) + 'static) -> 
     )
 }
 
-fn banners(p: &Paint, app: &Ngine) -> Option<El> {
+fn banners(p: &Paint, app: &Ngine, width: f32) -> Option<El> {
     let shown = if let Some(problem) = app.problems.first() {
         let mut one = problem_banner(p, problem);
         let more = app.problems.len() - 1 + usize::from(app.settings_were_reset);
@@ -489,8 +483,10 @@ fn banners(p: &Paint, app: &Ngine) -> Option<El> {
     Some(
         col()
             .key("banners")
-            .px(PAGE_PADDING)
-            .pt(space::S3)
+            .w(width)
+            .self_center()
+            .pt(space::S1)
+            .pb(space::S3)
             .child(shown),
     )
 }
@@ -580,7 +576,7 @@ pub fn view(app: &Ngine, cx: &mut Cx<Ngine>) -> El {
                 .a11y_hidden(),
         );
     }
-    if let Some(banners) = banners(&p, app) {
+    if let Some(banners) = banners(&p, app, ui.content_width()) {
         main = main.child(banners);
     }
     main = main.child(screen);

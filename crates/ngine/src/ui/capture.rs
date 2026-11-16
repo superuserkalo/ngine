@@ -241,17 +241,26 @@ fn sources_menu(ui: &mut Ui<'_>) {
     if !items.is_empty() {
         items.push(menu_rule(&p, "sources-rule"));
     }
-    items.push(
-        MenuItem::new("source-picker", "Choose with the system picker…")
-            .icon(&icons::MOUSE_POINTER_CLICK)
-            .build(&p, "menuitem", |app, _| app.pick()),
-    );
-    let list = menu(&p, "sources", "Sources", items)
-        .w(SOURCES_WIDTH.min(ui.content_width()))
-        .max_h(SOURCES_HEIGHT.min(ui.window.1 - 160.0).max(160.0))
+    let listed = col()
+        .key("sources-list")
+        .items_stretch()
+        .max_h(SOURCES_HEIGHT.min(ui.window.1 - 172.0).max(120.0))
         .scroll(ScrollSpec {
             stick_bottom: false,
-        });
+        })
+        .children(items);
+    let list = menu(
+        &p,
+        "sources",
+        "Sources",
+        vec![
+            listed,
+            MenuItem::new("source-picker", "Choose with the system picker…")
+                .icon(&icons::MOUSE_POINTER_CLICK)
+                .build(&p, "menuitem", |app, _| app.pick()),
+        ],
+    )
+    .w(SOURCES_WIDTH.min(ui.content_width()));
     let floating = Floating {
         key: "sources",
         anchor: "source",
@@ -311,14 +320,14 @@ fn app_items(p: &Paint, app: &Ngine) -> Vec<El> {
         items.push(
             MenuItem::new(&key, &owner.name)
                 .icon(kind_icon(TargetKind::App))
-                .detail(format!("All {}", windows_words(count)))
+                .detail(windows_words(count))
                 .chosen(app.target.as_ref() == Some(*owner))
                 .build(&p, "menuitemradio", move |app, _| app.choose(index)),
         );
-        for (window_index, window) in windows
+        let own = windows
             .iter()
-            .filter(|(_, window)| window.owner.as_deref() == Some(owner.id.as_str()))
-        {
+            .filter(|(_, window)| window.owner.as_deref() == Some(owner.id.as_str()));
+        for (window_index, window) in own.filter(|_| count > 1) {
             items.push(window_item(app, &p, *window_index, window, true));
         }
     }
@@ -604,8 +613,7 @@ fn recording_words(app: &Ngine) -> String {
             };
             format!("Recording {}{markers}", recording.target.name)
         }
-        (None, Some(target)) => format!("Ready to record {}", target.name),
-        (None, None) => "Press Record to choose what to record".into(),
+        (None, _) => String::new(),
     }
 }
 
@@ -664,13 +672,15 @@ fn record(ui: &Ui<'_>) -> El {
             .font(TIMER)
             .color(timer_colour),
     );
-    let words = col()
+    let mut words = col()
         .key("record-words")
         .grow(1.0)
         .min_w(160.0)
         .gap(2.0)
-        .child(timer)
-        .child(caption(&p, "recording-state", recording_words(app)));
+        .child(timer);
+    if running.is_some() {
+        words = words.child(caption(&p, "recording-state", recording_words(app)));
+    }
     let body = row()
         .key("record-body")
         .padding(space::S3 + space::S1)
@@ -708,7 +718,7 @@ fn replay_words(app: &Ngine) -> String {
             )
         }
         None => format!(
-            "Off. When on, keeps the last {} ready to save, {}.",
+            "Keeps the last {} ready to save, {}",
             seconds(app.settings.replay.length_seconds),
             cost_words(app, app.settings.replay.length_seconds)
         ),
@@ -757,7 +767,7 @@ fn save_buttons(p: &Paint, app: &Ngine) -> El {
             .keys(hotkey_caps(app, slot))
             .build(p, move |app| app.perform(action))
     };
-    let buttons = row()
+    row()
         .key("save-buttons")
         .gap(space::S2)
         .flex_wrap()
@@ -778,15 +788,7 @@ fn save_buttons(p: &Paint, app: &Ngine) -> El {
             "Save whole replay",
             hotkeys::SAVE_EVERYTHING,
             Action::SaveEverything,
-        ));
-    match blocked {
-        Some(why) => col()
-            .key("save-group")
-            .gap(space::S2)
-            .child(buttons)
-            .child(caption(p, "save-blocked", format!("{why}."))),
-        None => buttons,
-    }
+        ))
 }
 
 fn replay(ui: &mut Ui<'_>) -> El {
@@ -860,7 +862,7 @@ fn recent(ui: &Ui<'_>) -> Option<El> {
                 .label(format!("Open {}", entry.item.name))
                 .w(width)
                 .gap(space::S1 + 2.0)
-                .padding(space::S1)
+                .pb(space::S1)
                 .radius(radius::LG)
                 .hover(p.t.hover)
                 .press(p.t.press)
@@ -869,7 +871,7 @@ fn recent(ui: &Ui<'_>) -> Option<El> {
                 .child(
                     el().key(format!("{key}-thumbnail"))
                         .w_full()
-                        .h((width - 2.0 * space::S1) * 9.0 / 16.0)
+                        .h(width * 9.0 / 16.0)
                         .radius(radius::MD)
                         .fill(Color::BLACK)
                         .pixels_fit(&entry.thumbnail, SurfaceFit::Fill)
@@ -881,7 +883,6 @@ fn recent(ui: &Ui<'_>) -> Option<El> {
                         .font(type_::LABEL)
                         .color(p.t.text)
                         .truncate()
-                        .px(2.0)
                         .a11y_hidden(),
                 )
                 .child(
@@ -890,7 +891,6 @@ fn recent(ui: &Ui<'_>) -> Option<El> {
                         &format!("{key}-details"),
                         format!("{} · {}", length, entry.date),
                     )
-                    .px(2.0)
                     .a11y_hidden(),
                 ),
         );

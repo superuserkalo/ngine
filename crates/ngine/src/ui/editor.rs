@@ -39,7 +39,7 @@ pub const SHORTCUTS: [(&[&str], &str); 8] = [
     (&["I"], "Mark in: where the clip starts"),
     (&["O"], "Mark out: where the clip ends"),
     (&["F"], "Full screen, and back"),
-    (&["Esc"], "Leave full screen, or back to the library"),
+    (&["Esc"], "Back, or leave full screen"),
     (&["?"], "Show these keys"),
 ];
 
@@ -133,13 +133,16 @@ fn timeline(p: &Paint, editor: &Editor, width: f32) -> El {
                 .a11y_hidden(),
         );
     for (index, marker) in editor.markers.iter().enumerate() {
-        line = line.child(
-            mark(format!("marker-{index}"), MARKER, at(*marker), p.warning)
-                .absolute(at(*marker) - MARKER.0 / 2.0, 0.0),
-        );
+        line = line.child(mark(
+            format!("marker-{index}"),
+            MARKER,
+            at(*marker),
+            p.warning,
+        ));
     }
-    line.child(mark("in-point".into(), HANDLE, from, p.accent))
-        .child(mark("out-point".into(), HANDLE, to, p.accent))
+    let inside = |centre: f32| centre.clamp(HANDLE.0 / 2.0, (width - HANDLE.0 / 2.0).max(0.0));
+    line.child(mark("in-point".into(), HANDLE, inside(from), p.accent))
+        .child(mark("out-point".into(), HANDLE, inside(to), p.accent))
         .child(mark(
             "playhead".into(),
             PLAYHEAD,
@@ -195,7 +198,7 @@ fn transport(p: &Paint, editor: &Editor, narrow: bool) -> El {
         .child(
             Button::new("play", play)
                 .only_icon(glyph)
-                .look(Look::Primary)
+                .look(Look::Plain)
                 .help(format!("{play} (Space)"))
                 .build(p, with_editor(Editor::toggle_play)),
         )
@@ -332,9 +335,9 @@ fn sound(p: &Paint, editor: &Editor) -> Option<El> {
 fn precise_trim(p: &Paint, editor: &Editor) -> El {
     let precise = editor.cut == Cut::Exact;
     let hint = if precise {
-        "Re-encodes the ends, so the clip starts and ends on the exact frames"
+        "Re-encodes the ends to cut on the exact frames"
     } else {
-        "Off: the clip starts at the keyframe before the in point, up to 2 s early, and nothing is re-encoded"
+        "Cuts at keyframes without re-encoding, so it may start up to 2 s early"
     };
     toggle(
         p,
@@ -386,7 +389,7 @@ fn export(p: &Paint, app: &Ngine, editor: &Editor) -> El {
             key: "clip-name",
             label: "Clip name",
             edit: &app.clip_name,
-            placeholder: "Name, or leave empty for the date",
+            placeholder: "Name (optional)",
             icon: None,
         },
         |app| &mut app.clip_name,
@@ -398,8 +401,9 @@ fn export(p: &Paint, app: &Ngine, editor: &Editor) -> El {
         .pt(space::S2)
         .pb(space::S3)
         .gap(space::S2)
-        .child(name)
-        .child(caption(
+        .child(name);
+    if !matches!(editor.exporting, Exporting::Done { .. }) {
+        body = body.child(caption(
             p,
             "export-words",
             format!(
@@ -408,6 +412,7 @@ fn export(p: &Paint, app: &Ngine, editor: &Editor) -> El {
                 app.settings.output_folder.display()
             ),
         ));
+    }
     body = match &editor.exporting {
         Exporting::Idle => body.child(export_button(p, "Export clip")),
         Exporting::Running { done, .. } => body.child(progress(p, *done)).child(
@@ -708,8 +713,10 @@ pub fn watched(ui: &mut Ui<'_>, timeline_width: f32) -> Option<El> {
         let controls = col()
             .key("watching-controls")
             .w(overlay_width)
-            .padding(space::S3 + space::S1)
-            .gap(space::S2)
+            .px(space::S3 + space::S1)
+            .pt(space::S3)
+            .pb(space::S2)
+            .gap(space::S1)
             .radius(radius::LG)
             .fill(Color::BLACK.alpha(0.72))
             .border(p.hair, Color::WHITE.alpha(0.08))
@@ -734,8 +741,13 @@ pub fn watched(ui: &mut Ui<'_>, timeline_width: f32) -> Option<El> {
                     .child(range(&p, editor))
                     .child(timeline(&p, editor, timeline_width)),
             );
-        stage = stage
-            .child(controls.absolute((width - overlay_width) / 2.0, height - space::S6 - 116.0));
+        stage = stage.child(
+            row()
+                .key("watching-foot")
+                .pin(Some(0.0), None, Some(0.0), Some(space::S6))
+                .justify_center()
+                .child(controls),
+        );
     }
     Some(stage)
 }

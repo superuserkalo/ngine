@@ -296,8 +296,12 @@ fn the_recorder_restarts_a_broken_capture_and_keeps_the_recording_in_one_file() 
     let broken = CaptureError::Os("the display went away".into());
     let mut first = picture_and_sound(0.0, 2.0, 1.0);
     first.push(Event::Ended(EndReason::Failed(broken)));
+    let (recording_began, began) = std::sync::mpsc::channel::<()>();
+    let after_the_recording_begins = std::iter::once_with(move || began.recv())
+        .filter_map(|_| None)
+        .chain(first);
     let capturer = FakeCapture::new()
-        .with_script(first)
+        .with_script(after_the_recording_begins)
         .with_script(picture_and_sound(50.0, 52.0, 51.0))
         .into_capturer();
     let recorder = Recorder::start(
@@ -313,6 +317,7 @@ fn the_recorder_restarts_a_broken_capture_and_keeps_the_recording_in_one_file() 
             include_buffered: None,
         })
         .unwrap();
+    recording_began.send(()).unwrap();
 
     let events = events_until_stopped(&recorder);
     let names: Vec<&str> = events

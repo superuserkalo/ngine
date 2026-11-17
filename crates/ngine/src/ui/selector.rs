@@ -510,7 +510,7 @@ mod tests {
     fn drag(runtime: &mut Runtime<Selector>, from: (f32, f32), to: (f32, f32)) {
         runtime.pointer_move(from.0, from.1);
         runtime.pointer_down(from.0, from.1);
-        runtime.pointer_move((from.0 + to.0) / 2.0, (from.1 + to.1) / 2.0);
+        runtime.pointer_move(f32::midpoint(from.0, to.0), f32::midpoint(from.1, to.1));
         runtime.pointer_move(to.0, to.1);
         runtime.pointer_up(to.0, to.1);
         runtime.frame(FRAME_TIME);

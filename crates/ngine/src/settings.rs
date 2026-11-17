@@ -246,12 +246,7 @@ fn entries(settings: &Settings) -> Vec<(&'static str, Entry)> {
         announcements,
         selection,
     } = settings;
-    let selection_part = |part: fn(&Region) -> u32| {
-        selection
-            .as_ref()
-            .map_or(Entry::Unset, |region| Entry::Number(part(region)))
-    };
-    vec![
+    let mut entries = vec![
         ("video.codec", Entry::Text(video.codec.name().into())),
         ("video.quality", Entry::Text(video.quality.name().into())),
         (
@@ -305,6 +300,17 @@ fn entries(settings: &Settings) -> Vec<(&'static str, Entry)> {
         ),
         ("replay.start_with_app", Entry::Flag(replay.start_with_app)),
         ("output_folder", folder_entry(output_folder)),
+        ("start_at_login", Entry::Flag(*start_at_login)),
+        ("announcements.overlay", Entry::Flag(announcements.overlay)),
+        ("announcements.desktop", Entry::Flag(announcements.desktop)),
+    ];
+    entries.extend(hotkey_entries(hotkeys));
+    entries.extend(selection_entries(selection.as_ref()));
+    entries
+}
+
+fn hotkey_entries(hotkeys: &Hotkeys) -> Vec<(&'static str, Entry)> {
+    vec![
         ("hotkeys.record", Entry::Text(hotkeys.record.clone())),
         ("hotkeys.selection", Entry::Text(hotkeys.selection.clone())),
         (
@@ -320,14 +326,17 @@ fn entries(settings: &Settings) -> Vec<(&'static str, Entry)> {
             Entry::Text(hotkeys.save_everything.clone()),
         ),
         ("hotkeys.marker", Entry::Text(hotkeys.marker.clone())),
-        ("start_at_login", Entry::Flag(*start_at_login)),
-        ("announcements.overlay", Entry::Flag(announcements.overlay)),
-        ("announcements.desktop", Entry::Flag(announcements.desktop)),
+    ]
+}
+
+fn selection_entries(selection: Option<&Region>) -> Vec<(&'static str, Entry)> {
+    let selection_part = |part: fn(&Region) -> u32| {
+        selection.map_or(Entry::Unset, |region| Entry::Number(part(region)))
+    };
+    vec![
         (
             "selection.screen",
-            selection
-                .as_ref()
-                .map_or(Entry::Unset, |region| Entry::Text(region.screen.clone())),
+            selection.map_or(Entry::Unset, |region| Entry::Text(region.screen.clone())),
         ),
         ("selection.x", selection_part(|region| region.area.x)),
         ("selection.y", selection_part(|region| region.area.y)),

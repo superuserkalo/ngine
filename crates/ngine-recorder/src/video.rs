@@ -34,6 +34,7 @@ pub(crate) struct Geometry {
     size: Size,
     format: ngine_capture::PixelFormat,
     surface: SurfaceKind,
+    shows_part_of_the_surface: bool,
 }
 
 impl Geometry {
@@ -42,6 +43,7 @@ impl Geometry {
             size: frame.size(),
             format: frame.format(),
             surface: surface_kind(frame),
+            shows_part_of_the_surface: frame.crop().is_some(),
         }
     }
 
@@ -127,7 +129,13 @@ impl VideoStage {
         let geometry = Geometry::of(frame);
         let encoder_settings = encoder_settings(settings, encoder, geometry.encoded_size())?;
         let mut gpu_route_failed = false;
-        for route in routes_to_try(&encoder.name, geometry.arrival(), gpu_route_allowed) {
+        let surface_can_be_read_whole = !geometry.shows_part_of_the_surface;
+        let routes = routes_to_try(
+            &encoder.name,
+            geometry.arrival(),
+            gpu_route_allowed && surface_can_be_read_whole,
+        );
+        for route in routes {
             match route {
                 Route::GpuSurface => match gpu::open(&encoder_settings, frame) {
                     Some((pool, opened)) => {
@@ -473,6 +481,29 @@ mod tests {
             routes_to_try("libopenh264", on_the_gpu, true),
             [Route::CpuPixels]
         );
+    }
+
+    #[test]
+    fn a_frame_that_shows_part_of_its_pixels_opens_a_stage_that_copies_that_part() {
+        let pixels = Arc::new(CpuFrame::solid_bgra(Size::new(64, 36), [0, 0, 0, 255]).unwrap());
+        let frame = VideoFrame::from_cpu(ngine_capture::Timestamp::from_nanos(0), pixels)
+            .cropped(ngine_capture::Region::new(8, 4, 32, 18))
+            .unwrap();
+        let settings = VideoSettings {
+            codec: ngine_media::VideoCodec::H264,
+            quality: crate::settings::Quality::Low,
+            frame_rate: 30,
+            encoder: None,
+        };
+        let software = ChosenEncoder {
+            name: ngine_media::SOFTWARE_H264.to_owned(),
+        };
+
+        let opened = VideoStage::open(&settings, &software, &frame, true).unwrap();
+
+        assert!(!opened.stage.reads_the_gpu_surface());
+        assert_eq!(opened.stage.stream_info().parameters.width(), 32);
+        assert!(opened.stage.takes(&frame));
     }
 
     #[test]

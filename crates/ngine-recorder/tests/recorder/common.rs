@@ -215,12 +215,20 @@ impl Rig {
         S: IntoIterator<Item = Event>,
         S::IntoIter: Send + 'static,
     {
-        let (sender, events) = mpsc::channel();
         let screen = Screen::new(ScreenId(1), "Fake screen", SIZE);
+        Self::capturing(&Target::from(screen), config, script)
+    }
+
+    pub fn capturing<S>(target: &Target, config: &RecorderConfig, script: S) -> Self
+    where
+        S: IntoIterator<Item = Event>,
+        S::IntoIter: Send + 'static,
+    {
+        let (sender, events) = mpsc::channel();
         let session = FakeCapture::new()
             .with_script(script)
             .into_capturer()
-            .start(&Target::from(screen), &SessionOptions::new())
+            .start(target, &SessionOptions::new())
             .unwrap();
         Self {
             pipeline: Pipeline::new(config, sender).unwrap(),

@@ -1,7 +1,9 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use ngine_capture::{AudioSource, CaptureError, CpuFrame, Event, Size};
+use ngine_capture::{
+    AudioSource, CaptureError, CpuFrame, Event, Region, Screen, ScreenId, Size, Target,
+};
 use ngine_media::{AudioCodec, Codec, Demuxer, VideoCodec};
 use ngine_recorder::{RecorderEvent, RecordingStart, Tracks, journal_path, read_markers};
 
@@ -58,6 +60,28 @@ fn start(file: std::path::PathBuf) -> RecordingStart {
         file,
         include_buffered: None,
     }
+}
+
+#[test]
+fn a_recording_of_a_region_has_the_size_of_the_region() {
+    let folder = TempFolder::new("region");
+    let screen = Screen::new(ScreenId(1), "Fake screen", SIZE);
+    let region = Region::new(32, 24, 160, 90);
+    let mut rig = Rig::capturing(
+        &Target::from(screen).with_region(region),
+        &config(FRAME_RATE, Tracks::Three),
+        picture_and_two_sources(1.0),
+    );
+    rig.pipeline
+        .start_recording(&start(folder.file("region.mp4")))
+        .unwrap();
+    rig.run_to_the_end();
+    let (path, _) = rig.wait_for_finished_file();
+
+    let file = File::decode(&path);
+    assert_eq!(file.streams[0].parameters.width(), region.width);
+    assert_eq!(file.streams[0].parameters.height(), region.height);
+    assert_ne!(file.video.len(), 0);
 }
 
 #[test]

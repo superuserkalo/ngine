@@ -24,8 +24,9 @@ pub const ACTIONS: [Action; COUNT] = [
 ];
 
 pub const UNUSABLE: &str = "ngine cannot use this hotkey";
+pub const NOT_OFFERED: &str = "This desktop does not offer global shortcuts";
 pub const USED_TWICE: &str = "Two actions share this hotkey";
-pub const NEEDS_MODIFIER: &str = "Hold Ctrl, Alt or another modifier key with it";
+pub use crate::platform::NEEDS_MODIFIER;
 
 fn seconds(seconds: u16) -> String {
     format::length(Duration::from_secs(u64::from(seconds)))

@@ -133,7 +133,6 @@ fn selection_bar(p: &Paint, app: &Ngine) -> Option<El> {
             .child(
                 Button::new("selection-trash", &format!("Move to {}", platform::TRASH))
                     .icon(&icons::TRASH_2)
-                    .look(Look::Danger)
                     .build(p, Ngine::ask_to_trash_selection),
             )
     })
@@ -228,8 +227,9 @@ fn card(p: &Paint, app: &Ngine, index: usize, entry: &Entry, width: f32) -> El {
         .radius(radius::MD)
         .fill(Color::BLACK)
         .pixels_fit(&entry.thumbnail, SurfaceFit::Fill)
-        .border(
+        .outline(
             SELECTED_RING,
+            2.0,
             if selected {
                 p.accent
             } else {
@@ -500,7 +500,13 @@ pub fn view(ui: &mut Ui<'_>) -> El {
     let p = ui.p;
     let app = ui.app;
     let first = if app.library.entries.is_empty() {
-        None
+        let bar = row()
+            .key("library-toolbar")
+            .w_full()
+            .center_y()
+            .child(spacer())
+            .child(folder_button(&p, app));
+        ui.top_row(bar, CONTROL)
     } else if let Some(bar) = selection_bar(&p, app) {
         ui.top_row(bar, SELECTION_NEEDS)
     } else {
@@ -508,12 +514,12 @@ pub fn view(ui: &mut Ui<'_>) -> El {
         ui.top_row(bar, needs)
     };
     let mut content = sheet(ui, "library").gap(space::S3 + space::S1);
+    if let Some(bar) = first {
+        content = content.child(bar);
+    }
     if app.library.entries.is_empty() {
         content = content.child(empty(ui));
     } else {
-        if let Some(bar) = first {
-            content = content.child(bar);
-        }
         let shown = app.shown();
         content = if shown.is_empty() {
             content.child(nothing_found(&p, app))

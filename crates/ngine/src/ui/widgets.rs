@@ -420,6 +420,7 @@ pub struct Stops<'a> {
     pub count: u16,
     pub value: String,
     pub width: f32,
+    pub mark: Option<u16>,
 }
 
 /// A slider over a few stops. Its value is read out next to it.
@@ -431,6 +432,7 @@ pub fn slider(p: &Paint, stops: Stops<'_>, set: impl Fn(&mut Ngine, u16) + Clone
         count,
         value,
         width,
+        mark,
     } = stops;
     let last = f32::from(count.saturating_sub(1).max(1));
     let travel = width - KNOB;
@@ -479,6 +481,15 @@ pub fn slider(p: &Paint, stops: Stops<'_>, set: impl Fn(&mut Ngine, u16) + Clone
                 .fill(p.t.control_off)
                 .a11y_hidden(),
         )
+        .children(mark.map(|stop| {
+            let at = KNOB / 2.0 + f32::from(stop) / last * travel;
+            el().key(format!("{key}-mark"))
+                .size(2.0, SLIDER_BAR + 6.0)
+                .absolute(at - 1.0, bar_top - 3.0)
+                .radius(1.0)
+                .fill(p.t.text_secondary)
+                .a11y_hidden()
+        }))
         .child(
             el().key(format!("{key}-fill"))
                 .size(KNOB / 2.0 + fraction * travel, SLIDER_BAR)
@@ -648,6 +659,7 @@ fn presets(p: &Paint, app: &Ngine, layer: &mut Vec<El>, amount: Amount, width: f
         .focus_group()
         .min_w(width.max(220.0))
         .max_h(LIST_HEIGHT)
+        .min_h(0.0)
         .scroll(ScrollSpec {
             stick_bottom: false,
         })
@@ -1190,6 +1202,7 @@ pub fn select(
             .focus_group()
             .min_w(width.max(if detailed { 320.0 } else { 200.0 }))
             .max_h(LIST_HEIGHT)
+            .min_h(0.0)
             .scroll(ScrollSpec {
                 stick_bottom: false,
             })

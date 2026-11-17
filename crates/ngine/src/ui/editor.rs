@@ -291,6 +291,7 @@ fn transport(p: &Paint, editor: &Editor, width: f32) -> El {
             count: u16::from(FULL_VOLUME / 10) + 1,
             value: format!("{} %", editor.volume()),
             width: PREVIEW_VOLUME_WIDTH,
+            mark: None,
         };
         bar = bar
             .child(
@@ -325,6 +326,7 @@ fn source_row(p: &Paint, editor: &Editor, source: Source) -> El {
         count: LOUDEST_PERCENT / PERCENT_STEP + 1,
         value: format!("{} %", level.percent),
         width: LEVEL_WIDTH,
+        mark: Some(100 / PERCENT_STEP),
     };
     let volume = slider(p, stops, move |app, stop| {
         if let Some(editor) = &mut app.editor {
@@ -368,7 +370,7 @@ fn sound(p: &Paint, editor: &Editor) -> Option<El> {
         section(
             p,
             "clip-sound",
-            "Sound",
+            "",
             vec![
                 source_row(p, editor, Source::System),
                 source_row(p, editor, Source::Microphone),
@@ -548,6 +550,7 @@ fn export(p: &Paint, app: &Ngine, editor: &Editor, width: f32) -> El {
     };
     let mut group = col()
         .key("export-section")
+        .w(width)
         .padding(space::S1)
         .fill(p.t.card)
         .radius(radius::LG)
@@ -811,18 +814,24 @@ pub fn view(ui: &mut Ui<'_>, timeline_width: f32) -> El {
             "No sound output could be opened, so the preview plays without sound. The clip keeps its sound.",
         ));
     }
-    let mut panel = col().key("editor-panel").gap(space::S6).child(export(
-        &p,
-        app,
-        editor,
-        if side_by_side {
-            panel_width
-        } else {
-            video_width
-        },
-    ));
-    if let Some(sound) = sound(&p, editor) {
-        panel = panel.child(sound);
+    let sound = sound(&p, editor);
+    let in_two =
+        !side_by_side && sound.is_some() && video_width >= 2.0 * NARROW_PANEL_WIDTH + space::S6;
+    let export_width = if side_by_side {
+        panel_width
+    } else if in_two {
+        (video_width - space::S6) / 2.0
+    } else {
+        video_width
+    };
+    let mut panel = if in_two {
+        row().key("editor-panel").gap(space::S6).items_start()
+    } else {
+        col().key("editor-panel").gap(space::S6)
+    }
+    .child(export(&p, app, editor, export_width));
+    if let Some(sound) = sound {
+        panel = panel.child(if in_two { sound.w(export_width) } else { sound });
     }
     let body = if side_by_side {
         row()

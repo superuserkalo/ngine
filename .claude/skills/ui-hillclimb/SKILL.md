@@ -35,7 +35,7 @@ Climb from the window as it is. Its structure is the owner's accepted starting p
 
 **Type.** At most three sizes on a screen. Weight and tone carry hierarchy before size does. Muted text is still readable.
 
-**Space.** Content uses the window: no large dead areas next to cramped ones, nothing cut off at 720×480, nothing stretched thin at 1280×800. Long names truncate with an ellipsis, never collide. A video takes the height the window gives it, at its own aspect ratio, not a fixed 16:9 in a capped column; controls drawn over a video sit inside the picture, not on its black bars. A toast or notice takes its own room and never covers a control. A scrolled menu shows that it scrolls.
+**Space.** Content uses the window: no large dead areas next to cramped ones, nothing cut off at 720×480, nothing stretched thin at 1280×800. Long names truncate with an ellipsis, never collide. A video takes the height the window gives it, at its own aspect ratio, not a fixed 16:9 in a capped column; controls drawn over a video sit inside the picture, not on its black bars. A toast or notice takes its own room and never covers a control. A scrolled menu or page shows that it scrolls, by fading the edge it scrolls past.
 
 **Window frame.** No stock system title bar on any system: on Windows no white caption bar with the app name, on macOS the traffic lights sit inside ngine's own top strip, under Hyprland nothing at all. The top strip drags the window, double-click behaves as the system does, and no content collides with the window controls.
 
@@ -43,8 +43,10 @@ Climb from the window as it is. Its structure is the owner's accepted starting p
 
 **It responds.** Every clickable thing shows the hand cursor on hover and a text field shows the text cursor. Every menu, popover and sheet opens on the first click within one frame and closes and reopens reliably, every time. Click each one in the real app; a picture cannot prove this. Nothing slow runs on the window's thread when something is pressed: listing screens, windows or devices, probing encoders or measuring disks happens in the background and fills in when ready, and an ignored test on the real engine times the open.
 
+**Overlays on the screen.** Controls drawn over the screen never sit on the part being chosen or recorded, and a frame stays visible over both light and dark content.
+
 **Live state.** Recording and replay state is shown where it matters, small and calm, and only when something is live. Meters move when there is sound.
 
-**States.** Hover, pressed, focus and disabled are visible and consistent. Disabled controls say why when hovered. Empty, loading and error states look designed, not forgotten.
+**States.** Hover, pressed, focus and disabled are visible and consistent. Disabled controls say why when hovered. The primary action is disabled, with the reason, until what it acts on is chosen. A selection mark draws outside a picture, never under it. Empty, loading and error states look designed, not forgotten.
 
 **Tells of AI design to remove.** Status pills nobody asked for, emoji, gradients on everything, every element in its own rounded card, icons on every label, centred everything, redundant section titles, helper text under every row, three equal buttons where one matters.

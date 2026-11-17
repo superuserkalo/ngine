@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use ngine_capture::{Capturer, Target, Targets};
+use ngine_capture::{Capturer, Region, Target, Targets};
 use ngine_recorder::replay::{BackendChoice, ReplayLength, SaveRange};
 use ngine_recorder::{
     AudioCodec, AudioSettings, CaptureSetup, Quality, Recorder, RecorderConfig, RecorderEvent,
@@ -24,6 +24,8 @@ Options for both:
   --screen N | --window N | --app N
                             What to record, numbered from 1 as --list shows
                             them (default: --screen 1)
+  --region X,Y,W,H          Record only this part of the screen, in its
+                            pixels from the top-left corner
   --list                    List what can be recorded and stop
   --codec h264|hevc|av1     (default: h264)
   --encoder NAME            Use this FFmpeg encoder instead of the first
@@ -61,6 +63,7 @@ struct Request {
     last: Option<Duration>,
     kind: Kind,
     number: usize,
+    region: Option<Region>,
     list: bool,
     video: VideoSettings,
     audio: AudioSettings,
@@ -78,6 +81,21 @@ fn value<'a>(
         .ok_or_else(|| format!("{name} needs a value"))
 }
 
+const REGION_OF_A_SCREEN: &str = "--region is a part of a screen, so it goes with --screen";
+
+fn region(text: &str) -> Result<Region, String> {
+    let parts: Vec<u32> = text
+        .split(',')
+        .map(|part| number("--region", part.trim()))
+        .collect::<Result<_, _>>()?;
+    match parts[..] {
+        [x, y, width, height] if width > 0 && height > 0 => Ok(Region::new(x, y, width, height)),
+        _ => Err(format!(
+            "\"{text}\" is not a region; give X,Y,W,H with a width and height above zero"
+        )),
+    }
+}
+
 fn number<T: std::str::FromStr>(name: &str, text: &str) -> Result<T, String> {
     text.parse()
         .map_err(|_| format!("\"{text}\" is not a number for {name}"))
@@ -91,6 +109,7 @@ impl Request {
             last: None,
             kind: Kind::Screen,
             number: 1,
+            region: None,
             list: false,
             video: VideoSettings {
                 codec: VideoCodec::H264,
@@ -127,6 +146,7 @@ impl Request {
                     };
                     request.number = number(name, value(name, &mut arguments)?)?;
                 }
+                "--region" => request.region = Some(region(value(name, &mut arguments)?)?),
                 "--list" => request.list = true,
                 "--codec" => {
                     request.video.codec = match value(name, &mut arguments)? {
@@ -177,6 +197,9 @@ impl Request {
     }
 
     fn target(&self, targets: &Targets) -> Result<Target, String> {
+        if self.region.is_some() && !matches!(self.kind, Kind::Screen) {
+            return Err(REGION_OF_A_SCREEN.into());
+        }
         let index = self
             .number
             .checked_sub(1)
@@ -186,7 +209,12 @@ impl Request {
             Kind::Window => targets.windows.get(index).cloned().map(Target::from),
             Kind::App => targets.apps.get(index).cloned().map(Target::from),
         };
-        target.ok_or_else(|| format!("there is no target number {}; see --list", self.number))
+        let target = target
+            .ok_or_else(|| format!("there is no target number {}; see --list", self.number))?;
+        Ok(match self.region {
+            Some(region) => target.with_region(region),
+            None => target,
+        })
     }
 }
 
@@ -408,5 +436,29 @@ pub fn run(command: &str, arguments: &[String]) -> Result<(), String> {
         Err("the run did not finish cleanly".into())
     } else {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parsed(line: &str) -> Result<Request, String> {
+        let arguments: Vec<String> = line.split(' ').map(String::from).collect();
+        Request::parse(Mode::Record, &arguments)
+    }
+
+    #[test]
+    fn a_region_is_four_numbers_and_only_goes_with_a_screen() {
+        let request = parsed("--seconds 3 --out a.mp4 --region 10,20,640,360").expect("parses");
+        assert_eq!(request.region, Some(Region::new(10, 20, 640, 360)));
+        assert!(parsed("--seconds 3 --out a.mp4 --region 10,20,640").is_err());
+        assert!(parsed("--seconds 3 --out a.mp4 --region 10,20,0,360").is_err());
+        let windowed =
+            parsed("--seconds 3 --out a.mp4 --window 1 --region 0,0,8,8").expect("parses");
+        assert_eq!(
+            windowed.target(&Targets::default()).err(),
+            Some(REGION_OF_A_SCREEN.to_owned())
+        );
     }
 }

@@ -59,7 +59,7 @@ impl Ngine {
     /// action has, or one the system refuses, is not kept: the hotkey stays as
     /// it was and the field says why.
     pub fn propose_hotkey(&mut self, slot: usize, shortcut: &Shortcut) {
-        let keys = shortcut.keycaps().join(" ");
+        let keys = crate::ui::widgets::written_keys(&shortcut.keycaps());
         if shortcut.require_modifier().is_err() {
             return self.refuse_hotkey(slot, hotkeys::NEEDS_MODIFIER.to_owned());
         }

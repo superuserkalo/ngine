@@ -301,7 +301,7 @@ impl Library {
                 "Recording 2026-11-12 09.15.00",
                 65,
                 81_000_000,
-                4 * SAMPLE_DAY,
+                4 * SAMPLE_DAY + 17_302,
                 0,
                 [70, 60, 110],
             ),

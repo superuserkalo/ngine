@@ -12,6 +12,7 @@ pub const FILE_MANAGER: &str = "file manager";
 pub const TRASH: &str = "Trash";
 pub const SYSTEM_SETTINGS: &str = "the system settings";
 pub const LISTS_CAPTURE_TARGETS: bool = false;
+pub const NEEDS_MODIFIER: &str = "Hold Ctrl, Alt or Super with it";
 pub const ERASE_KEY: &str = "Backspace";
 
 /// Keys Linux desktops commonly keep for themselves, with what they do

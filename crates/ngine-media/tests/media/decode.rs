@@ -92,3 +92,16 @@ fn a_decoder_refuses_a_stream_of_the_other_kind() {
     assert!(AudioDecoder::open(&demuxer.streams()[0]).is_err());
     assert!(Demuxer::open(TempFile::new("missing.mp4").path()).is_err());
 }
+
+#[test]
+#[ignore = "needs a real recording: set NGINE_REAL_RECORDING to its path and NGINE_REAL_SIZE to WxH"]
+fn a_real_recording_decodes_at_the_size_it_was_recorded_at() {
+    let path = std::path::PathBuf::from(std::env::var_os("NGINE_REAL_RECORDING").unwrap());
+    let wanted = std::env::var("NGINE_REAL_SIZE").unwrap();
+    let decoded = decode_file(&path, PixelFormat::Bgra, false);
+    assert_ne!(decoded.video.len(), 0);
+    for picture in &decoded.video {
+        assert_eq!(format!("{}x{}", picture.width, picture.height), wanted);
+    }
+    println!("{} pictures of {wanted}", decoded.video.len());
+}

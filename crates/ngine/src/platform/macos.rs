@@ -11,6 +11,7 @@ pub const FILE_MANAGER: &str = "Finder";
 pub const TRASH: &str = "Trash";
 pub const SYSTEM_SETTINGS: &str = "System Settings";
 pub const LISTS_CAPTURE_TARGETS: bool = true;
+pub const NEEDS_MODIFIER: &str = "Hold ⌘, ⌥ or ⌃ with it";
 pub const ERASE_KEY: &str = "Delete";
 
 /// Keys macOS keeps for itself or that every Mac app answers, with what they

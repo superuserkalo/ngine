@@ -8,7 +8,7 @@ use super::widgets::{
 };
 use super::{EARLY_NOTE, SIMULATED_NOTE, Ui, choose_folder, icons};
 use crate::app::{Amount, Folder, NAME, Ngine, Popup, Section, VERSION};
-use crate::engine::{Codec, Quality, ReplayStorage, Tracks};
+use crate::engine::{Codec, Quality, ReplayStorage, SystemSound, Tracks};
 use crate::format;
 use crate::hotkeys;
 use crate::platform;
@@ -30,10 +30,7 @@ pub const WAITING_FOR_KEYS: &str = "Press keys…";
 
 /// What the hotkey recorder says while it listens.
 pub fn recorder_hint() -> String {
-    format!(
-        "Press the new keys. Esc cancels, {} clears.",
-        platform::ERASE_KEY
-    )
+    format!("Esc cancels, {} clears", platform::ERASE_KEY)
 }
 
 pub fn section_label(section: Section) -> &'static str {
@@ -289,6 +286,7 @@ fn audio(ui: &mut Ui<'_>) -> Vec<El> {
             }
         },
     );
+    let everything = app.settings.inputs.system == SystemSound::Everything;
     let missing_system = app
         .missing_system_sound()
         .map(|_| "The chosen app is not running, so all system sound records".to_owned());
@@ -321,15 +319,10 @@ fn audio(ui: &mut Ui<'_>) -> Vec<El> {
                         |settings, percent| settings.audio.system.volume_percent = percent,
                     ),
                 ),
-                toggle(
-                    &p,
-                    "app-only",
-                    "Only the recorded app's sound",
-                    Some("When recording a window or an app".into()),
-                    audio.app_only,
-                    |app| app.edit(|settings| settings.audio.app_only ^= true),
-                ),
-            ],
+            ]
+            .into_iter()
+            .chain(everything.then(|| app_sound_row(&p, audio.app_only)))
+            .collect(),
         ),
         microphone_section(&p, app, microphone),
         section(
@@ -345,6 +338,30 @@ fn audio(ui: &mut Ui<'_>) -> Vec<El> {
             )],
         ),
     ]
+}
+
+fn app_sound_row(p: &Paint, app_only: bool) -> El {
+    let choice = segmented(
+        p,
+        Segments {
+            key: "app-only",
+            label: "When recording a window or an app",
+            choices: vec![
+                Choice::new("its", "Its sound"),
+                Choice::new("all", "All sound"),
+            ],
+            selected: Some(usize::from(!app_only)),
+            segment_width: 80.0,
+        },
+        |app, index| app.edit(|settings| settings.audio.app_only = index == 0),
+    );
+    setting(
+        p,
+        "app-only-row",
+        "When recording a window or an app",
+        None,
+        choice,
+    )
 }
 
 fn device_row(p: &Paint, key: &str, label: &str, missing: Option<String>, control: El) -> El {
@@ -623,25 +640,32 @@ fn hotkey(p: &Paint, app: &Ngine, slot: usize) -> El {
     }
 }
 
+pub const BIND_IN_THE_DESKTOP: &str = "Bind keys in the desktop's own settings to ngine's commands, such as ngine replay save --last 30s.";
+
 fn hotkeys_section(ui: &Ui<'_>) -> Vec<El> {
     let p = &ui.p;
-    vec![
-        section(
-            p,
-            "hotkeys",
-            "",
-            (0..hotkeys::COUNT)
-                .map(|slot| hotkey(p, ui.app, slot))
-                .collect(),
-        ),
-        caption(
-            p,
-            "hotkeys-commands",
-            "Hotkeys work in every app. Where the system keeps them to itself, bind a key to a command such as ngine replay save --last 30s.",
-        )
-        .max_w(520.0)
-        .mx(space::S1),
-    ]
+    let mut shown = vec![section(
+        p,
+        "hotkeys",
+        "",
+        (0..hotkeys::COUNT)
+            .map(|slot| hotkey(p, ui.app, slot))
+            .collect(),
+    )];
+    let not_offered = ui
+        .app
+        .hotkey_problems
+        .iter()
+        .flatten()
+        .any(|problem| problem == hotkeys::NOT_OFFERED);
+    if not_offered {
+        shown.push(
+            caption(p, "hotkeys-commands", BIND_IN_THE_DESKTOP)
+                .max_w(520.0)
+                .mx(space::S1),
+        );
+    }
+    shown
 }
 
 fn folder_row(p: &Paint, key: &str, label: &str, folder: Folder, path: &std::path::Path) -> El {
@@ -765,8 +789,6 @@ fn about(ui: &Ui<'_>) -> Vec<El> {
     let p = &ui.p;
     let mut words = col()
         .key("about-words")
-        .px(space::S3 + 2.0)
-        .py(space::S3)
         .gap(space::S1)
         .child(
             text(format!("{NAME} {VERSION}"))
@@ -840,11 +862,7 @@ pub fn sheet(ui: &mut Ui<'_>) {
     };
     let top = super::TITLEBAR.max(SHEET_MARGIN);
     let room = (ui.window.1 - top - SHEET_MARGIN / 2.0).max(1.0);
-    let height = if covers {
-        room
-    } else {
-        room.min(TALLEST_SHEET)
-    };
+    let height = room.min(TALLEST_SHEET);
     let list_width = if width < 760.0 {
         NARROW_LIST_WIDTH
     } else {

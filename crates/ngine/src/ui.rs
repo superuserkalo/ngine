@@ -16,7 +16,7 @@ mod library;
 pub mod palette;
 pub mod selector;
 mod settings;
-mod widgets;
+pub mod widgets;
 
 use widgets::{Button, HEADING, ICON, Look, NUMBERS, Paint, STRONG, caption};
 
@@ -212,6 +212,7 @@ pub fn page(key: &str, content: El) -> El {
         .scroll(ScrollSpec {
             stick_bottom: false,
         })
+        .scroll_edge_fade(widgets::LIST_FADE)
         .child(content)
 }
 

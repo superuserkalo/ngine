@@ -10,7 +10,7 @@ use crate::selection::Area;
 
 pub const FRAME_RATES: [u16; 3] = [30, 60, 120];
 pub const REPLAY_LENGTHS: [u16; 12] = [15, 30, 45, 60, 90, 120, 180, 300, 600, 900, 1200, 1800];
-pub const MEMORY_BUDGETS_MB: [u32; 7] = [256, 384, 512, 768, 1024, 1536, 2048];
+pub const MEMORY_BUDGETS_MB: [u32; 4] = [256, 512, 1024, 2048];
 pub const SHORT_SAVE_SECONDS: u16 = 30;
 
 pub const SHORTEST_REPLAY: u16 = REPLAY_LENGTHS[0];

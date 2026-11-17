@@ -34,6 +34,9 @@ const OFF: f32 = 0.45;
 
 pub const NO_REPLAY: &str = "Turn instant replay on first";
 pub const NOTHING_HELD: &str = "Nothing is held yet";
+const SHORT_WINDOW: f32 = 560.0;
+pub const CHOOSE_FIRST: &str = "Choose what to record first";
+const WAITING_FOR_PICKER: &str = "Waiting for the system picker";
 pub const NOT_CONNECTED: &str = "Not connected";
 pub const STOP_TO_CHANGE: &str = "Stop the recording to change the source";
 
@@ -135,10 +138,16 @@ fn source(ui: &mut Ui<'_>) -> El {
     let app = ui.app;
     let open = app.popup == Some(Popup::Sources);
     let (glyph, name, detail) = source_words(app);
-    let action = if app.capabilities.lists_targets || app.target.is_some() {
-        "Change"
+    let menu = app.capabilities.lists_targets || app.target.is_some();
+    let action = match (menu, app.target.is_some()) {
+        (true, true) => "Change",
+        (true, false) => "Choose",
+        (false, _) => "Choose…",
+    };
+    let action_ink = if app.target.is_none() {
+        p.accent
     } else {
-        "Choose…"
+        p.t.text_secondary
     };
     let mut words = col()
         .key("source-words")
@@ -170,23 +179,26 @@ fn source(ui: &mut Ui<'_>) -> El {
         .border(p.hair, if open { p.accent } else { p.t.card_border })
         .child(tile(&p, "source-icon", glyph))
         .child(words)
-        .child(
-            row()
-                .key("source-action")
-                .gap(space::S1)
-                .center_y()
-                .child(
-                    text(action)
-                        .font(type_::LABEL)
-                        .color(p.t.text_secondary)
-                        .a11y_hidden(),
-                )
-                .child(
+        .child({
+            let mut shown = row().key("source-action").gap(space::S1).center_y().child(
+                text(action)
+                    .font(if app.target.is_none() {
+                        STRONG
+                    } else {
+                        type_::LABEL
+                    })
+                    .color(action_ink)
+                    .a11y_hidden(),
+            );
+            if menu {
+                shown = shown.child(
                     icon(&icons::CHEVRON_DOWN, ICON)
-                        .color(p.t.text_secondary)
+                        .color(action_ink)
                         .a11y_hidden(),
-                ),
-        );
+                );
+            }
+            shown
+        });
     line = match source_blocked(app) {
         Some(why) => line
             .disabled(true)
@@ -415,6 +427,7 @@ pub fn volume(
         count: VOLUME_STOPS,
         value: format!("{percent} %"),
         width,
+        mark: None,
     };
     slider(p, stops, move |app, index| {
         let percent = u8::try_from(index)
@@ -709,9 +722,11 @@ fn record(ui: &Ui<'_>) -> El {
                     .build(&p, |app| app.perform(Action::ToggleRecording)),
             )
     } else {
-        let blocked = app
-            .picking
-            .then(|| "Waiting for the system picker".to_owned());
+        let blocked = if app.picking {
+            Some(WAITING_FOR_PICKER.to_owned())
+        } else {
+            app.target.is_none().then(|| CHOOSE_FIRST.to_owned())
+        };
         buttons.child(
             Button::new("record-toggle", "Record")
                 .icon(&icons::CIRCLE)
@@ -753,7 +768,11 @@ fn record(ui: &Ui<'_>) -> El {
     }
     let body = row()
         .key("record-body")
-        .padding(space::S3 + space::S1)
+        .padding(if ui.window.1 < SHORT_WINDOW {
+            space::S2
+        } else {
+            space::S3 + space::S1
+        })
         .gap(space::S3)
         .center_y()
         .flex_wrap()
@@ -802,6 +821,16 @@ fn listed_lengths(current: u16) -> Vec<u16> {
     lengths
 }
 
+fn menu_cost_words(app: &Ngine, length: u16) -> String {
+    let cost = app.cost_of(length);
+    let size = format::megabytes(cost.megabytes);
+    if cost.on_disk {
+        format!("≈ {size} on disk")
+    } else {
+        format!("≈ {size}")
+    }
+}
+
 /// The menu of buffer lengths, each with what it costs.
 pub fn length_select(ui: &mut Ui<'_>, key: &str, width: f32) -> El {
     let p = ui.p;
@@ -810,7 +839,7 @@ pub fn length_select(ui: &mut Ui<'_>, key: &str, width: f32) -> El {
     let lengths = listed_lengths(current);
     let options = lengths
         .iter()
-        .map(|length| Option_::new(seconds(*length)).detail(cost_words(app, *length)))
+        .map(|length| Option_::new(seconds(*length)).detail(menu_cost_words(app, *length)))
         .collect();
     let chosen = Select {
         key,
@@ -999,8 +1028,13 @@ fn recent(ui: &Ui<'_>) -> Option<El> {
 }
 
 pub fn view(ui: &mut Ui<'_>) -> El {
+    let gap = if ui.window.1 < SHORT_WINDOW {
+        space::S3
+    } else {
+        space::S3 + space::S1
+    };
     let mut content = sheet(ui, "capture")
-        .gap(space::S3 + space::S1)
+        .gap(gap)
         .child(source(ui))
         .child(record(ui))
         .child(replay(ui))

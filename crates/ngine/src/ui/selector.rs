@@ -12,7 +12,7 @@ use crate::selection::{Area, Bounds, Grip, Point};
 pub const NAME: &str = "ngine-selection";
 pub const SAMPLE_SIZE: (f32, f32) = (1440.0, 900.0);
 const GRAB_REACH: f32 = 8.0;
-const HANDLE: f32 = 8.0;
+const HANDLE: f32 = 10.0;
 const FRAME: f32 = 2.0;
 const SHADE: f32 = 0.5;
 const LABEL_GAP: f32 = 8.0;
@@ -266,13 +266,14 @@ pub fn view(selector: &Selector, cx: &mut Cx<Selector>) -> El {
                         ))
                         .absolute(x, y)
                         .size(w, h)
-                        .border(paint.hair.max(1.0), Color::WHITE.alpha(0.9)),
+                        .border(paint.hair.max(1.0), Color::WHITE.alpha(0.9))
+                        .outline(1.0, 0.0, Color::BLACK.alpha(0.5)),
                 )
                 .children(handles([x, y, w, h]))
                 .child(size_label(&paint, area, [x, y, w, h], size));
         }
     }
-    root.child(bar(&paint, selector, size))
+    root.child(bar(&paint, selector, size, ratio))
 }
 
 fn handles([x, y, w, h]: [f32; 4]) -> Vec<El> {
@@ -294,22 +295,37 @@ fn handles([x, y, w, h]: [f32; 4]) -> Vec<El> {
                 .size(HANDLE, HANDLE)
                 .radius(HANDLE / 2.0)
                 .fill(Color::WHITE)
-                .border(1.0, Color::BLACK.alpha(0.35))
+                .border(1.0, Color::BLACK.alpha(0.5))
                 .a11y_hidden()
         })
         .collect()
 }
 
-fn bar_top(screen: (f32, f32)) -> f32 {
-    screen.1 - BAR_MARGIN - CONTROL - 2.0 * BAR_PADDING
+const BAR_HEIGHT: f32 = CONTROL + 2.0 * BAR_PADDING;
+
+fn bar_top(screen: (f32, f32), part: Option<[f32; 4]>) -> f32 {
+    let bottom = screen.1 - BAR_MARGIN - BAR_HEIGHT;
+    let Some([_, y, _, h]) = part else {
+        return bottom;
+    };
+    let reaches_bottom = y + h > bottom - LABEL_GAP;
+    let room_above = y >= BAR_MARGIN + BAR_HEIGHT + LABEL_GAP;
+    if reaches_bottom && room_above {
+        BAR_MARGIN
+    } else {
+        bottom
+    }
 }
 
 fn size_label(paint: &Paint, area: Area, [x, y, w, h]: [f32; 4], screen: (f32, f32)) -> El {
     let below = y + h + LABEL_GAP;
     let above = y - LABEL_GAP - LABEL_HEIGHT;
-    let top = if below + LABEL_HEIGHT + LABEL_GAP <= bar_top(screen) {
+    let bar = bar_top(screen, Some([x, y, w, h]));
+    let clear_of_bar =
+        |top: f32| top + LABEL_HEIGHT + LABEL_GAP <= bar || top >= bar + BAR_HEIGHT + LABEL_GAP;
+    let top = if below + LABEL_HEIGHT <= screen.1 && clear_of_bar(below) {
         below
-    } else if above >= 0.0 {
+    } else if above >= 0.0 && clear_of_bar(above) {
         above
     } else {
         y + LABEL_GAP
@@ -364,7 +380,7 @@ fn button(paint: &Paint, key: &str, label: &str, primary: bool, press: fn(&mut S
         )
 }
 
-fn bar(paint: &Paint, selector: &Selector, screen: (f32, f32)) -> El {
+fn bar(paint: &Paint, selector: &Selector, screen: (f32, f32), ratio: f32) -> El {
     let mut bar = row()
         .key("selector-bar")
         .role("toolbar")
@@ -400,9 +416,10 @@ fn bar(paint: &Paint, selector: &Selector, screen: (f32, f32)) -> El {
             Selector::confirm,
         ));
     }
+    let part = selector.area.map(|area| area.in_points(ratio));
     row()
         .key("selector-bar-box")
-        .absolute(0.0, bar_top(screen))
+        .absolute(0.0, bar_top(screen, part))
         .w(screen.0)
         .center()
         .child(bar)
@@ -612,6 +629,16 @@ mod tests {
 
         let [_, top, _, height] = rect(&runtime, "selector-size-box");
         assert!(top + height <= 550.0, "{top}");
+    }
+
+    #[test]
+    fn the_bar_moves_to_the_top_rather_than_cover_a_part_that_reaches_the_bottom() {
+        let low = scene("near-the-bottom");
+        let [_, top, _, height] = rect(&low, "selector-bar");
+        assert!(top + height <= 550.0, "{top}");
+        let middle = scene("chosen");
+        let [_, top, _, _] = rect(&middle, "selector-bar");
+        assert!(top > 560.0, "{top}");
     }
 
     #[test]

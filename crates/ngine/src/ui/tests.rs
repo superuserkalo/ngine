@@ -277,10 +277,7 @@ fn replay_shows_what_it_holds_and_a_save_confirms_the_real_length() {
 fn the_replay_length_menu_puts_the_cost_beside_each_length() {
     let mut runtime = scene("replay-length-open");
     assert_eq!(words(&runtime, "replay-length.2-label"), "1 min");
-    assert_eq!(
-        words(&runtime, "replay-length.2-detail"),
-        "≈ 90 MB in memory"
-    );
+    assert_eq!(words(&runtime, "replay-length.2-detail"), "≈ 90 MB");
     assert_eq!(
         words(&runtime, "replay-length.6-detail"),
         "≈ 2.7 GB on disk"
@@ -294,6 +291,11 @@ fn the_replay_length_menu_puts_the_cost_beside_each_length() {
 fn where_sources_cannot_be_listed_the_system_picker_chooses() {
     let mut runtime = scene("picker-only");
     assert_eq!(words(&runtime, "source-name"), "Nothing chosen yet");
+    assert!(dimmed(&runtime, "record-toggle"));
+    assert_eq!(
+        help(&runtime, "record-toggle"),
+        super::capture::CHOOSE_FIRST
+    );
     press(&mut runtime, "source");
     assert!(!shows(&runtime, "sources"));
     assert_eq!(
@@ -302,6 +304,7 @@ fn where_sources_cannot_be_listed_the_system_picker_chooses() {
     );
     pass(&mut runtime, Duration::from_secs(1));
     assert_eq!(words(&runtime, "source-name"), "Counter-Strike 2");
+    assert!(!dimmed(&runtime, "record-toggle"));
     let cancelled = scene("picker-cancelled");
     assert_eq!(words(&cancelled, "source-name"), "Nothing chosen yet");
 }
@@ -406,8 +409,18 @@ fn the_audio_settings_switch_sources_and_tracks() {
     assert!(!runtime.state.settings.audio.microphone.enabled);
     press(&mut runtime, "tracks.mix");
     assert_eq!(runtime.state.settings.audio.tracks, Tracks::MixOnly);
-    press(&mut runtime, "app-only");
+    press(&mut runtime, "app-only.all");
     assert!(!runtime.state.settings.audio.app_only);
+    runtime.update(|app, _| {
+        app.edit(|settings| {
+            settings.inputs.system = crate::engine::SystemSound::App {
+                id: 7,
+                name: "Discord".into(),
+            };
+        });
+    });
+    runtime.frame(FRAME);
+    assert!(!shows(&runtime, "app-only-row"));
 }
 
 #[test]
@@ -517,7 +530,7 @@ fn a_hotkey_another_action_has_is_refused_with_its_name() {
         words(&runtime, "hotkey-5-row-hint"),
         format!(
             "{} is already used for “Start or stop recording”",
-            caps("ctrl+alt+r")
+            written("ctrl+alt+r")
         )
     );
     physical(&mut runtime, PhysicalKeyCode::KeyM, Mods::default());
@@ -731,6 +744,12 @@ fn escape_cancels_the_hotkey_recorder_even_when_it_arrives_as_a_plain_key() {
     assert!(shows(&runtime, "hotkey-5-caps"));
 }
 
+fn written(accelerator: &str) -> String {
+    super::widgets::written_keys(
+        &hotkeys::keycaps(accelerator).expect("the test accelerator parses"),
+    )
+}
+
 fn caps(accelerator: &str) -> String {
     hotkeys::keycaps(accelerator)
         .expect("the test accelerator parses")
@@ -843,4 +862,26 @@ fn the_system_sound_menu_offers_all_sound_and_what_the_system_can_separate() {
     press(&mut runtime, "capture-system-sound.1");
     assert_eq!(runtime.state.settings.inputs.system, offered[0]);
     assert_eq!(runtime.state.inputs().system, offered[0]);
+}
+
+#[test]
+fn the_hotkeys_point_at_commands_only_where_the_desktop_offers_no_shortcuts() {
+    let mut runtime = settings(Section::Hotkeys);
+    assert!(!shows(&runtime, "hotkeys-commands"));
+    runtime.update(|app, _| app.hotkey_problems[0] = Some(hotkeys::NOT_OFFERED.into()));
+    runtime.frame(FRAME);
+    assert_eq!(
+        words(&runtime, "hotkeys-commands"),
+        super::settings::BIND_IN_THE_DESKTOP
+    );
+}
+
+#[test]
+fn the_settings_sheet_keeps_its_height_in_a_tall_narrow_window() {
+    let mut app = demo::idle();
+    app.show_section(Section::Audio);
+    let mut runtime = Runtime::new(app, view, (960.0, 1080.0), Env::new(true, 2.0));
+    runtime.frame(0.0);
+    let [_, _, _, height] = element(&runtime, "settings").rect;
+    assert!(height <= 640.0, "{height}");
 }

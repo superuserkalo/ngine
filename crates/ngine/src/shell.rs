@@ -59,7 +59,7 @@ pub struct Shell {
 fn describe(error: &ShortcutError) -> String {
     match error {
         ShortcutError::Conflict => "Another app already uses this shortcut".into(),
-        ShortcutError::Unsupported => "This desktop does not offer global shortcuts".into(),
+        ShortcutError::Unsupported => hotkeys::NOT_OFFERED.into(),
         ShortcutError::PermissionDenied => "The desktop did not allow this shortcut".into(),
         ShortcutError::InvalidAccelerator(_) => hotkeys::UNUSABLE.into(),
         other => format!("This shortcut could not be set: {other}"),

@@ -71,14 +71,28 @@ impl Capturer {
         self.backend.microphones()
     }
 
+    /// Starts capturing. A target with a [`Target::region`] that the system
+    /// cannot capture on its own is captured whole and cropped here, from
+    /// frames that can be copied to ordinary memory whatever
+    /// [`SessionOptions::gpu_surfaces`] asks.
     pub fn start(
         &self,
         target: &Target,
         options: &SessionOptions,
     ) -> Result<Session, CaptureError> {
         let (sink, pending) = session::channel();
+        let crop = target
+            .region()
+            .filter(|_| !self.backend.captures_only_the_region(target));
+        let copyable;
+        let options = if crop.is_some() {
+            copyable = options.clone().with_gpu_surfaces(false);
+            &copyable
+        } else {
+            options
+        };
         let capture = self.backend.start(target, options, sink)?;
-        Ok(pending.run(capture))
+        Ok(pending.run(capture).showing_only(crop))
     }
 }
 

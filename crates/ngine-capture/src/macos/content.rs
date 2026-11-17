@@ -1,3 +1,4 @@
+use screencapturekit::cg::CGRect;
 use screencapturekit::shareable_content::{
     SCDisplay, SCRunningApplication, SCShareableContent, SCShareableContentInfo, SCWindow,
 };
@@ -7,7 +8,7 @@ use super::convert;
 use crate::error::CaptureError;
 use crate::frame::Size;
 use crate::target::{
-    App, PickedHandle, Screen, ScreenId, Target, TargetSource, Targets, Window, WindowId,
+    App, PickedHandle, Region, Screen, ScreenId, Target, TargetSource, Targets, Window, WindowId,
 };
 
 const ORDINARY_WINDOW_LAYER: i32 = 0;
@@ -24,6 +25,9 @@ pub(super) struct Resolved {
     pub(super) filter: SCContentFilter,
     pub(super) size: Size,
     pub(super) sound: Sound,
+    /// The part of the display to capture, in its points, when only a part
+    /// is captured.
+    pub(super) source_rect: Option<CGRect>,
 }
 
 fn all_content() -> Result<SCShareableContent, CaptureError> {
@@ -102,6 +106,44 @@ fn sized(filter: SCContentFilter, sound: Sound) -> Result<Resolved, CaptureError
         filter,
         size,
         sound,
+        source_rect: None,
+    })
+}
+
+pub(super) fn points_of(region: Region, pixels_per_point: f64) -> CGRect {
+    CGRect::new(
+        f64::from(region.x) / pixels_per_point,
+        f64::from(region.y) / pixels_per_point,
+        f64::from(region.width) / pixels_per_point,
+        f64::from(region.height) / pixels_per_point,
+    )
+}
+
+fn part_of_display(
+    filter: SCContentFilter,
+    display: &SCDisplay,
+    region: Region,
+) -> Result<Resolved, CaptureError> {
+    let whole = pixel_size(&filter).ok_or_else(|| {
+        CaptureError::Os("ScreenCaptureKit gave no size for the display".to_owned())
+    })?;
+    let region = region
+        .within(whole)
+        .and_then(Region::on_even_pixels)
+        .ok_or_else(|| {
+            CaptureError::Unavailable("the chosen part of the screen is not on it".to_owned())
+        })?;
+    let points_wide = display.frame().size.width;
+    let pixels_per_point = if points_wide > 0.0 {
+        f64::from(whole.width) / points_wide
+    } else {
+        1.0
+    };
+    Ok(Resolved {
+        filter,
+        size: region.size(),
+        sound: Sound::Everything,
+        source_rect: Some(points_of(region, pixels_per_point)),
     })
 }
 
@@ -144,7 +186,10 @@ pub(super) fn resolve(target: &Target) -> Result<Resolved, CaptureError> {
                 .find(|display| u64::from(display.display_id()) == screen.id.0)
                 .ok_or(CaptureError::TargetGone)?;
             let filter = whole_display(&display, &windows_of_this_process(&content))?;
-            sized(filter, Sound::Everything)
+            match target.region() {
+                Some(region) => part_of_display(filter, &display, region),
+                None => sized(filter, Sound::Everything),
+            }
         }
         TargetSource::Window(window) => {
             let found = content

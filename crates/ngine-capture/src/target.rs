@@ -12,6 +12,59 @@ pub struct ScreenId(pub u64);
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct WindowId(pub u64);
 
+/// A rectangle of a target's picture, in its pixels from the top-left.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct Region {
+    pub x: u32,
+    pub y: u32,
+    pub width: u32,
+    pub height: u32,
+}
+
+impl Region {
+    pub const fn new(x: u32, y: u32, width: u32, height: u32) -> Self {
+        Self {
+            x,
+            y,
+            width,
+            height,
+        }
+    }
+
+    pub const fn size(self) -> Size {
+        Size::new(self.width, self.height)
+    }
+
+    /// The part of this region that lies inside a picture of `size`. `None`
+    /// when nothing of it does.
+    pub fn within(self, size: Size) -> Option<Self> {
+        let right = self.x.saturating_add(self.width).min(size.width);
+        let bottom = self.y.saturating_add(self.height).min(size.height);
+        (self.x < right && self.y < bottom).then(|| Self {
+            x: self.x,
+            y: self.y,
+            width: right - self.x,
+            height: bottom - self.y,
+        })
+    }
+
+    /// The largest region inside this one whose corners all sit on even
+    /// pixels, as a picture with half-size chroma needs. `None` when that
+    /// leaves nothing.
+    pub fn on_even_pixels(self) -> Option<Self> {
+        let x = self.x.next_multiple_of(2);
+        let y = self.y.next_multiple_of(2);
+        let right = self.x.saturating_add(self.width) & !1;
+        let bottom = self.y.saturating_add(self.height) & !1;
+        (x < right && y < bottom).then(|| Self {
+            x,
+            y,
+            width: right - x,
+            height: bottom - y,
+        })
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Screen {
@@ -161,6 +214,7 @@ pub(crate) enum TargetSource {
 pub struct Target {
     source: TargetSource,
     audio_app: Option<AudioApp>,
+    region: Option<Region>,
 }
 
 impl Target {
@@ -169,6 +223,7 @@ impl Target {
         Self {
             audio_app: handle.audio_app.clone(),
             source: TargetSource::Picked(handle),
+            region: None,
         }
     }
 
@@ -202,6 +257,20 @@ impl Target {
     pub fn audio_app(&self) -> Option<&AudioApp> {
         self.audio_app.as_ref()
     }
+
+    /// Captures only `region` of this target's picture, in the pixels its
+    /// listing gives as its size. Frames then have the region's size. A part
+    /// of the region that falls outside the picture is left out, and a frame
+    /// that holds none of it is not delivered.
+    #[must_use]
+    pub fn with_region(mut self, region: Region) -> Self {
+        self.region = Some(region);
+        self
+    }
+
+    pub fn region(&self) -> Option<Region> {
+        self.region
+    }
 }
 
 impl From<Screen> for Target {
@@ -209,6 +278,7 @@ impl From<Screen> for Target {
         Self {
             source: TargetSource::Screen(screen),
             audio_app: None,
+            region: None,
         }
     }
 }
@@ -220,6 +290,7 @@ impl From<Window> for Target {
                 .process_id
                 .map(|process_id| AudioApp::new(u64::from(process_id), window.app_name.clone())),
             source: TargetSource::Window(window),
+            region: None,
         }
     }
 }
@@ -229,6 +300,7 @@ impl From<App> for Target {
         Self {
             audio_app: Some(AudioApp::new(u64::from(app.process_id), app.name.clone())),
             source: TargetSource::App(app),
+            region: None,
         }
     }
 }
@@ -240,6 +312,7 @@ impl fmt::Debug for Target {
             .field("kind", &self.kind())
             .field("label", &self.label())
             .field("audio_app", &self.audio_app)
+            .field("region", &self.region)
             .finish_non_exhaustive()
     }
 }
@@ -353,6 +426,46 @@ mod tests {
         assert_eq!(
             Target::from(app).audio_app(),
             Some(&AudioApp::new(41, "Editor"))
+        );
+    }
+
+    #[test]
+    fn a_region_keeps_only_what_lies_on_the_picture() {
+        let picture = Size::new(1920, 1080);
+
+        assert_eq!(
+            Region::new(1800, 1000, 400, 400).within(picture),
+            Some(Region::new(1800, 1000, 120, 80))
+        );
+        assert_eq!(Region::new(1920, 0, 10, 10).within(picture), None);
+        assert_eq!(
+            Region::new(10, 20, 30, 40).within(picture),
+            Some(Region::new(10, 20, 30, 40))
+        );
+    }
+
+    #[test]
+    fn a_region_on_even_pixels_shrinks_inward() {
+        assert_eq!(
+            Region::new(3, 5, 101, 51).on_even_pixels(),
+            Some(Region::new(4, 6, 100, 50))
+        );
+        assert_eq!(
+            Region::new(4, 6, 100, 50).on_even_pixels(),
+            Some(Region::new(4, 6, 100, 50))
+        );
+        assert_eq!(Region::new(3, 3, 1, 1).on_even_pixels(), None);
+    }
+
+    #[test]
+    fn a_target_carries_the_region_it_was_given() {
+        let screen = Screen::new(ScreenId(1), "Main", Size::new(1920, 1080));
+        let region = Region::new(0, 0, 640, 360);
+
+        assert_eq!(Target::from(screen.clone()).region(), None);
+        assert_eq!(
+            Target::from(screen).with_region(region).region(),
+            Some(region)
         );
     }
 

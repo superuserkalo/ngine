@@ -51,6 +51,7 @@ struct Streams {
     sound_only: Option<SCStream>,
     configuration: SCStreamConfiguration,
     size: Size,
+    shows_a_fixed_part: bool,
 }
 
 impl Supervisee for Streams {
@@ -62,7 +63,7 @@ impl Supervisee for Streams {
     }
 
     fn follow(&mut self, size: Size) {
-        if self.size == size {
+        if self.size == size || self.shows_a_fixed_part {
             return;
         }
         self.configuration
@@ -357,7 +358,10 @@ impl Plan {
         let resolved = &filters.picture;
         let picture_carries_sound =
             wanted_sound(&self.options.system_audio) == Some(resolved.sound);
-        let configuration = self.picture_configuration(resolved.size, picture_carries_sound)?;
+        let mut configuration = self.picture_configuration(resolved.size, picture_carries_sound)?;
+        if let Some(rect) = resolved.source_rect {
+            configuration.set_source_rect(rect);
+        }
         let mut picture = open(&resolved.filter, &configuration, generation, signals)?;
         let watch = NativeSizeWatch {
             last_seen: AtomicU64::new(packed(resolved.size)),
@@ -389,6 +393,7 @@ impl Plan {
             sound_only,
             configuration,
             size: resolved.size,
+            shows_a_fixed_part: resolved.source_rect.is_some(),
         };
         let begun = streams
             .sound_only
@@ -580,6 +585,13 @@ mod tests {
             );
             assert!(gap < Duration::from_millis(250), "{gap:?}");
         }
+    }
+
+    #[test]
+    fn a_region_in_pixels_is_asked_for_in_points_on_a_retina_display() {
+        let rect = content::points_of(crate::target::Region::new(200, 100, 1280, 720), 2.0);
+
+        assert_eq!(rect, CGRect::new(100.0, 50.0, 640.0, 360.0));
     }
 
     #[test]

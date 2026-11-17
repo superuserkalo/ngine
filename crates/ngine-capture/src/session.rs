@@ -9,6 +9,7 @@ use std::time::{Duration, Instant};
 
 use crate::error::CaptureError;
 use crate::event::{EndReason, Event};
+use crate::target::Region;
 use crate::time::Timestamp;
 
 const QUEUED_EVENTS: usize = 512;
@@ -130,6 +131,7 @@ impl PendingSession {
     pub(crate) fn run(self, capture: Box<dyn RunningCapture>) -> Session {
         Session {
             events: self.events,
+            crop: None,
             finished: Cell::new(false),
             control: Arc::new(Control {
                 counters: self.counters,
@@ -202,11 +204,17 @@ impl std::error::Error for RecvError {}
 /// first and counted in [`Session::dropped_video_frames`].
 pub struct Session {
     events: Receiver<Event>,
+    crop: Option<Region>,
     finished: Cell<bool>,
     control: Arc<Control>,
 }
 
 impl Session {
+    pub(crate) fn showing_only(mut self, crop: Option<Region>) -> Self {
+        self.crop = crop;
+        self
+    }
+
     /// Waits for the next event. Returns `None` once [`Event::Ended`] has been
     /// received.
     pub fn recv(&self) -> Option<Event> {
@@ -250,6 +258,22 @@ impl Session {
     }
 
     fn next_before(&self, deadline: Option<Instant>) -> Result<Event, RecvError> {
+        loop {
+            let event = self.next_event_before(deadline)?;
+            if let Some(shown) = self.shown(event) {
+                return Ok(shown);
+            }
+        }
+    }
+
+    fn shown(&self, event: Event) -> Option<Event> {
+        match (event, self.crop) {
+            (Event::Video(frame), Some(region)) => frame.cropped(region).map(Event::Video),
+            (event, _) => Some(event),
+        }
+    }
+
+    fn next_event_before(&self, deadline: Option<Instant>) -> Result<Event, RecvError> {
         if self.finished.get() {
             return Err(RecvError::Finished);
         }
@@ -433,6 +457,35 @@ mod tests {
             Some(Event::Ended(EndReason::Failed(CaptureError::Os(_))))
         ));
         assert!(session.recv().is_none());
+    }
+
+    #[test]
+    fn a_session_that_shows_a_region_crops_each_frame_and_skips_those_without_it() {
+        let (sink, pending) = channel();
+        let session = pending
+            .run(Box::new(NothingToStop))
+            .showing_only(Some(Region::new(4, 2, 6, 4)));
+        let large = CpuFrame::solid_bgra(Size::new(16, 8), [0, 0, 0, 255]).unwrap();
+        let small = CpuFrame::solid_bgra(Size::new(2, 2), [0, 0, 0, 255]).unwrap();
+
+        sink.video(VideoFrame::from_cpu(
+            Timestamp::from_nanos(1),
+            Arc::new(small),
+        ));
+        sink.video(VideoFrame::from_cpu(
+            Timestamp::from_nanos(2),
+            Arc::new(large),
+        ));
+        sink.deliver(Event::Ended(EndReason::Stopped));
+
+        let Some(Event::Video(frame)) = session.recv() else {
+            panic!("the frame that holds the region arrives");
+        };
+        assert_eq!(frame.timestamp(), Timestamp::from_nanos(2));
+        assert_eq!(frame.size(), Size::new(6, 4));
+        assert_eq!(frame.to_cpu().unwrap().size(), Size::new(6, 4));
+        assert!(matches!(session.recv(), Some(Event::Ended(_))));
+        assert_eq!(session.dropped_video_frames(), 0);
     }
 
     #[test]

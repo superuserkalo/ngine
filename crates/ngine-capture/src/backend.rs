@@ -23,6 +23,11 @@ pub(crate) trait Backend: Send + Sync {
     fn target_picker(&self) -> Option<&dyn PickTarget>;
     fn audio_app_lister(&self) -> Option<&dyn ListAudioApps>;
     fn microphones(&self) -> Result<Vec<MicrophoneDevice>, CaptureError>;
+    /// Whether this backend captures only [`Target::region`] itself, so its
+    /// frames already have the region's size.
+    fn captures_only_the_region(&self, _target: &Target) -> bool {
+        false
+    }
     fn start(
         &self,
         target: &Target,

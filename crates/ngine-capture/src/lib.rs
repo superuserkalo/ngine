@@ -41,8 +41,8 @@ pub use macos::CoreVideoSurface;
 pub use options::{Microphone, SessionOptions, SystemAudio};
 pub use session::{RecvError, Session, Stopper};
 pub use target::{
-    App, AudioApp, MicrophoneDevice, ParentWindow, PickedTarget, PickerOptions, RestoreToken,
-    Screen, ScreenId, Target, TargetKind, Targets, Window, WindowId,
+    App, AudioApp, MicrophoneDevice, ParentWindow, PickedTarget, PickerOptions, Region,
+    RestoreToken, Screen, ScreenId, Target, TargetKind, Targets, Window, WindowId,
 };
 pub use time::Timestamp;
 #[cfg(target_os = "windows")]

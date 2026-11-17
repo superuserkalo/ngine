@@ -21,7 +21,7 @@ use crate::options::SessionOptions;
 use crate::session::{EventSink, RunningCapture};
 use crate::target::{
     AudioApp, MicrophoneDevice, PickedHandle, PickedTarget, PickerOptions, Target, TargetKind,
-    Targets,
+    TargetSource, Targets,
 };
 
 pub(crate) struct MacBackend;
@@ -116,6 +116,10 @@ impl Backend for MacBackend {
             .into_iter()
             .map(|device| MicrophoneDevice::new(device.id, device.name, device.is_default))
             .collect())
+    }
+
+    fn captures_only_the_region(&self, target: &Target) -> bool {
+        matches!(target.source(), TargetSource::Screen(_))
     }
 
     fn start(

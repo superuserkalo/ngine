@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 use ngine_capture::fake::{self, AudioShape, FakeCapture};
 use ngine_capture::{
     App, AudioApp, AudioSource, CaptureError, EndReason, Event, MicrophoneDevice, Permission,
-    PickedTarget, PickerOptions, RecvError, RestoreToken, Screen, ScreenId, Session,
+    PickedTarget, PickerOptions, RecvError, Region, RestoreToken, Screen, ScreenId, Session,
     SessionOptions, Size, SystemAudio, Target, TargetKind, Targets, Timestamp,
 };
 
@@ -383,4 +383,27 @@ fn each_start_plays_the_next_script() {
         .collect();
 
     assert_eq!(lengths, [2, 3, 1]);
+}
+
+#[test]
+fn a_region_of_a_screen_arrives_cropped_from_frames_that_can_be_copied() {
+    let frames = fake::solid_frames(fake::black(FRAME).unwrap(), 30, 2, Timestamp::from_nanos(0));
+    let fake = FakeCapture::new().with_script(frames);
+    let log = fake.start_log();
+    let target = Target::from(screen()).with_region(Region::new(8, 4, 32, 18));
+
+    let session = fake
+        .into_capturer()
+        .start(&target, &SessionOptions::new().with_gpu_surfaces(true))
+        .unwrap();
+    let sizes: Vec<Size> = drain(&session)
+        .iter()
+        .filter_map(|event| match event {
+            Event::Video(frame) => Some(frame.to_cpu().unwrap().size()),
+            _ => None,
+        })
+        .collect();
+
+    assert_eq!(sizes, [Size::new(32, 18), Size::new(32, 18)]);
+    assert!(!log.starts()[0].options.gpu_surfaces);
 }

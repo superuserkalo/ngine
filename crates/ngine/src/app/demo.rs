@@ -250,7 +250,10 @@ pub const SCENES: &[Scene] = &[
         app.open_popup(Popup::Choices("settings-microphone".into()));
     }),
     ("settings-microphone-missing", |app| {
-        app.edit(|settings| settings.inputs.microphone = Some("unplugged".into()));
+        app.edit(|settings| {
+            settings.inputs.microphone = Some("unplugged".into());
+            settings.inputs.microphone_name = Some("Studio microphone".into());
+        });
         section(app, Section::Audio);
     }),
     ("settings-frame-rate-typed-wrong", |app| {
@@ -297,7 +300,7 @@ pub const SCENES: &[Scene] = &[
     }),
     ("library-renaming", |app| {
         library(app);
-        app.start_rename(3);
+        app.start_rename(1);
     }),
     ("library-long-names", library_long_names),
     ("editor", editor),

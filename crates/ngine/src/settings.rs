@@ -262,6 +262,13 @@ fn entries(settings: &Settings) -> Vec<(&'static str, Entry)> {
             "audio.microphone.device",
             inputs.microphone.clone().map_or(Entry::Unset, Entry::Text),
         ),
+        (
+            "audio.microphone.name",
+            inputs
+                .microphone_name
+                .clone()
+                .map_or(Entry::Unset, Entry::Text),
+        ),
         ("audio.system.source", system_sound_entry(&inputs.system)),
         (
             "replay.length_seconds",
@@ -391,6 +398,9 @@ fn read(prefs: &Prefs, defaults: Settings) -> Settings {
         },
         inputs: Inputs {
             microphone: reader.text("audio.microphone.device").or(inputs.microphone),
+            microphone_name: reader
+                .text("audio.microphone.name")
+                .or(inputs.microphone_name),
             system: reader
                 .text("audio.system.source")
                 .map_or(inputs.system, |text| system_sound_from(&text)),
@@ -524,6 +534,7 @@ mod tests {
         settings.audio.app_only = false;
         settings.inputs = Inputs {
             microphone: Some("usb-microphone-7".into()),
+            microphone_name: Some("USB microphone".into()),
             system: SystemSound::App {
                 id: 0,
                 name: "Discord".into(),

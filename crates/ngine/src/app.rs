@@ -308,6 +308,17 @@ impl Ngine {
         (!listed && !self.microphones.is_empty()).then_some(wanted)
     }
 
+    pub fn missing_microphone_name(&self) -> Option<String> {
+        let id = self.missing_microphone()?;
+        Some(
+            self.settings
+                .inputs
+                .microphone_name
+                .clone()
+                .unwrap_or_else(|| id.to_owned()),
+        )
+    }
+
     /// The chosen system sound when it can no longer be recorded, such as an
     /// app that has quit. ngine records all system sound instead.
     pub fn missing_system_sound(&self) -> Option<&SystemSound> {
@@ -336,7 +347,11 @@ impl Ngine {
                 .cloned()
                 .unwrap_or_default(),
         };
-        Inputs { microphone, system }
+        Inputs {
+            microphone,
+            microphone_name: None,
+            system,
+        }
     }
 
     fn recording_request(&self, target: Target) -> RecordingRequest {

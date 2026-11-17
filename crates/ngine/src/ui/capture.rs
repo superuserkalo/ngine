@@ -6,16 +6,16 @@ use rune::{
 };
 
 use super::widgets::{
-    Button, CAPTION, Floating, ICON, Look, MenuItem, Option_, Paint, STRONG, Select, Stops, TIMER,
-    caption, card, float, lone_switch, menu, menu_heading, menu_rule, meter, section_title, select,
-    slider,
+    Button, CAPTION, Floating, ICON, LIST_FADE, Look, MenuItem, Option_, Paint, STRONG, Select,
+    Stops, TIMER, caption, card, float, lone_switch, menu, menu_heading, menu_rule, meter,
+    section_title, select, slider,
 };
 use super::{Ui, hotkey_caps, icons, page, sheet};
 use crate::app::{Action, Ngine, Popup, Screen};
 use crate::engine::{AudioSource, SystemSound, Target, TargetKind};
 use crate::format;
 use crate::hotkeys;
-use crate::settings::{REPLAY_LENGTHS, SHORT_SAVE_SECONDS, Settings};
+use crate::settings::{SHORT_SAVE_SECONDS, Settings};
 
 const SOURCE_TILE: f32 = 36.0;
 const SOURCES_WIDTH: f32 = 380.0;
@@ -25,7 +25,7 @@ const VOLUME_WIDTH: f32 = 96.0;
 const METER_WIDTH: f32 = 120.0;
 const SHORT_METER_WIDTH: f32 = 64.0;
 const SHORT_METERS_BELOW: f32 = 700.0;
-const DEVICE_WIDTH: f32 = 220.0;
+const DEVICE_WIDTH: f32 = 300.0;
 const LENGTH_WIDTH: f32 = 112.0;
 const RECENT_COUNT: usize = 3;
 const VOLUME_STEP: u8 = 5;
@@ -34,6 +34,7 @@ const OFF: f32 = 0.45;
 
 pub const NO_REPLAY: &str = "Turn instant replay on first";
 pub const NOTHING_HELD: &str = "Nothing is held yet";
+pub const NOT_CONNECTED: &str = "Not connected";
 pub const STOP_TO_CHANGE: &str = "Stop the recording to change the source";
 
 fn kind_icon(kind: TargetKind) -> &'static Icon {
@@ -71,7 +72,7 @@ fn source_words(app: &Ngine) -> (&'static Icon, String, String) {
         (_, true) => (
             &icons::MOUSE_POINTER_CLICK,
             "Waiting for the system picker…".into(),
-            "Choose a screen or a window in the dialog the system shows".into(),
+            "Choose a screen or a window in the system's picker".into(),
         ),
         (Some(target), false) => (
             kind_icon(target.kind),
@@ -81,7 +82,7 @@ fn source_words(app: &Ngine) -> (&'static Icon, String, String) {
         (None, false) => (
             &icons::MOUSE_POINTER_CLICK,
             "Nothing chosen yet".into(),
-            "Choose a screen, a window or an app to record".into(),
+            String::new(),
         ),
     }
 }
@@ -136,6 +137,22 @@ fn source(ui: &mut Ui<'_>) -> El {
     } else {
         "Choose…"
     };
+    let mut words = col()
+        .key("source-words")
+        .grow(1.0)
+        .min_w(0.0)
+        .gap(2.0)
+        .child(
+            text(name.clone())
+                .key("source-name")
+                .font(STRONG)
+                .color(p.t.text)
+                .truncate()
+                .a11y_hidden(),
+        );
+    if !detail.is_empty() {
+        words = words.child(caption(&p, "source-detail", detail).a11y_hidden());
+    }
     let mut line = row()
         .key("source")
         .role("button")
@@ -149,22 +166,7 @@ fn source(ui: &mut Ui<'_>) -> El {
         .fill(p.t.card)
         .border(p.hair, if open { p.accent } else { p.t.card_border })
         .child(tile(&p, "source-icon", glyph))
-        .child(
-            col()
-                .key("source-words")
-                .grow(1.0)
-                .min_w(0.0)
-                .gap(2.0)
-                .child(
-                    text(name)
-                        .key("source-name")
-                        .font(STRONG)
-                        .color(p.t.text)
-                        .truncate()
-                        .a11y_hidden(),
-                )
-                .child(caption(&p, "source-detail", detail).a11y_hidden()),
-        )
+        .child(words)
         .child(
             row()
                 .key("source-action")
@@ -252,6 +254,7 @@ fn sources_menu(ui: &mut Ui<'_>) {
         .scroll(ScrollSpec {
             stick_bottom: false,
         })
+        .scroll_edge_fade(LIST_FADE)
         .children(items);
     let list = menu(
         &p,
@@ -410,15 +413,27 @@ pub fn microphone_select(ui: &mut Ui<'_>, key: &str, width: f32, align: Align) -
             .iter()
             .map(|device| Option_::new(device.name.clone())),
     );
-    let ids: Vec<String> = app
+    let mut devices: Vec<(String, String)> = app
         .microphones
         .iter()
-        .map(|device| device.id.clone())
+        .map(|device| (device.id.clone(), device.name.clone()))
         .collect();
-    let selected = match (&app.settings.inputs.microphone, app.missing_microphone()) {
-        (None, _) | (Some(_), Some(_)) => Some(0),
-        (Some(id), None) => ids.iter().position(|one| one == id).map(|at| at + 1),
-    };
+    let missing = app.missing_microphone().map(str::to_owned);
+    if let (Some(id), Some(name)) = (missing, app.missing_microphone_name()) {
+        options.push(Option_::new(name.clone()).detail(NOT_CONNECTED));
+        devices.push((id, name));
+    }
+    let selected = app
+        .settings
+        .inputs
+        .microphone
+        .as_ref()
+        .map_or(Some(0), |id| {
+            devices
+                .iter()
+                .position(|(one, _)| one == id)
+                .map(|at| at + 1)
+        });
     let chosen = Select {
         key,
         label: "Microphone",
@@ -428,8 +443,11 @@ pub fn microphone_select(ui: &mut Ui<'_>, key: &str, width: f32, align: Align) -
         align,
     };
     select(&p, app, &mut ui.layer, chosen, move |app, index| {
-        let device = index.checked_sub(1).and_then(|at| ids.get(at)).cloned();
-        app.edit(|settings| settings.inputs.microphone = device);
+        let device = index.checked_sub(1).and_then(|at| devices.get(at)).cloned();
+        app.edit(|settings| {
+            settings.inputs.microphone_name = device.as_ref().map(|(_, name)| name.clone());
+            settings.inputs.microphone = device.map(|(id, _)| id);
+        });
     })
 }
 
@@ -528,15 +546,16 @@ fn audio_row(p: &Paint, narrow: bool, meter_width: f32, audio: AudioRow) -> El {
                 .opacity(shown)
                 .child(device),
         );
-    if let Some(level) = level.filter(|_| on) {
+    if let Some(level) = level {
         line = line.child(
             el().key(format!("{key}-meter-box"))
                 .w(meter_width)
+                .opacity(shown)
                 .child(meter(
                     p,
                     &format!("{key}-meter"),
                     &format!("{label} level"),
-                    level,
+                    if on { level } else { 0.0 },
                 )),
         );
     }
@@ -564,7 +583,6 @@ fn audio_row(p: &Paint, narrow: bool, meter_width: f32, audio: AudioRow) -> El {
 
 fn audio(ui: &mut Ui<'_>) -> El {
     let narrow = ui.content_width() < 560.0;
-    let metered = ui.app.status.levels.is_some();
     let meter_width = if ui.content_width() < SHORT_METERS_BELOW {
         SHORT_METER_WIDTH
     } else {
@@ -574,11 +592,8 @@ fn audio(ui: &mut Ui<'_>) -> El {
         + 2.0
         + 16.0
         + AUDIO_LABEL
-        + if metered {
-            meter_width + space::S3
-        } else {
-            0.0
-        }
+        + meter_width
+        + space::S3
         + 36.0
         + 4.0 * space::S3
         + if narrow {
@@ -746,11 +761,24 @@ fn replay_words(app: &Ngine) -> String {
     }
 }
 
+const OFFERED_LENGTHS: [u16; 7] = [15, 30, 60, 120, 300, 600, 1800];
+
+fn listed_lengths(current: u16) -> Vec<u16> {
+    let mut lengths = OFFERED_LENGTHS.to_vec();
+    if !lengths.contains(&current) {
+        lengths.push(current);
+        lengths.sort_unstable();
+    }
+    lengths
+}
+
 /// The menu of buffer lengths, each with what it costs.
 pub fn length_select(ui: &mut Ui<'_>, key: &str, width: f32) -> El {
     let p = ui.p;
     let app = ui.app;
-    let options = REPLAY_LENGTHS
+    let current = app.settings.replay.length_seconds;
+    let lengths = listed_lengths(current);
+    let options = lengths
         .iter()
         .map(|length| Option_::new(seconds(*length)).detail(cost_words(app, *length)))
         .collect();
@@ -758,14 +786,12 @@ pub fn length_select(ui: &mut Ui<'_>, key: &str, width: f32) -> El {
         key,
         label: "Replay length",
         options,
-        selected: REPLAY_LENGTHS
-            .iter()
-            .position(|length| *length == app.settings.replay.length_seconds),
+        selected: lengths.iter().position(|length| *length == current),
         width,
         align: Align::End,
     };
-    select(&p, app, &mut ui.layer, chosen, |app, index| {
-        if let Some(length) = REPLAY_LENGTHS.get(index) {
+    select(&p, app, &mut ui.layer, chosen, move |app, index| {
+        if let Some(length) = lengths.get(index) {
             app.edit(|settings| settings.replay.length_seconds = *length);
         }
     })

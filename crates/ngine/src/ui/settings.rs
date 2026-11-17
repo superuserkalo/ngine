@@ -4,7 +4,7 @@ use rune::{Align, Color, Cursor, El, Icon, PhysicalInput, col, el, icon, row, te
 use super::capture::{microphone_select, system_sound_select, volume};
 use super::widgets::{
     Button, CONTROL, Choice, Look, NUMBERS, Paint, STRONG, Segments, amount_field, caption, dialog,
-    keycaps, section, segmented, setting, toggle, troubled_setting,
+    keycaps, section, segmented, setting, toggle, troubled_setting, warned_setting,
 };
 use super::{EARLY_NOTE, SIMULATED_NOTE, Ui, choose_folder, icons};
 use crate::app::{Amount, Folder, NAME, Ngine, Popup, Section, VERSION};
@@ -158,8 +158,8 @@ fn codec_id(codec: Codec) -> &'static str {
 
 fn quality_label(quality: Quality) -> &'static str {
     match quality {
-        Quality::Low => "Small",
-        Quality::Medium => "Balanced",
+        Quality::Low => "Low",
+        Quality::Medium => "Medium",
         Quality::High => "High",
         Quality::Highest => "Highest",
     }
@@ -349,7 +349,7 @@ fn audio(ui: &mut Ui<'_>) -> Vec<El> {
 
 fn device_row(p: &Paint, key: &str, label: &str, missing: Option<String>, control: El) -> El {
     match missing {
-        Some(why) => troubled_setting(p, key, label, why, control),
+        Some(why) => warned_setting(p, key, label, why, control),
         None => setting(p, key, label, None, control),
     }
 }
@@ -358,8 +358,8 @@ fn microphone_section(p: &Paint, app: &Ngine, microphone: El) -> El {
     let p = *p;
     let audio = app.settings.audio;
     let missing_microphone = app
-        .missing_microphone()
-        .map(|_| "The chosen microphone is not connected, so the default one records".to_owned());
+        .missing_microphone_name()
+        .map(|name| format!("{name} is not connected, so the system default records"));
     section(
         &p,
         "microphone-section",
@@ -479,7 +479,7 @@ fn replay(ui: &mut Ui<'_>) -> Vec<El> {
     let save = amount_row(
         ui,
         "save-length-row",
-        "Second save button",
+        "Save the last",
         Amount::SaveLength,
         None,
     );
@@ -524,8 +524,15 @@ fn hotkey_face(p: &Paint, app: &Ngine, slot: usize, key: &str) -> El {
         }
         return keycaps(p, &format!("{key}-held"), &held).a11y_hidden();
     }
-    match hotkeys::keycaps(app.settings.hotkeys.all()[slot]) {
+    let accelerator = app.settings.hotkeys.all()[slot];
+    match hotkeys::keycaps(accelerator) {
         Some(caps) => keycaps(p, &format!("{key}-caps"), &caps).a11y_hidden(),
+        None if !hotkeys::is_unset(accelerator) => text(accelerator.trim().to_owned())
+            .key(format!("{key}-written"))
+            .font(type_::LABEL)
+            .color(p.danger)
+            .truncate()
+            .a11y_hidden(),
         None => text(NOT_SET)
             .key(format!("{key}-unset"))
             .font(type_::LABEL)
@@ -825,13 +832,19 @@ pub fn sheet(ui: &mut Ui<'_>) {
     }
     let floating = ui.layer.split_off(start);
     let centred = (ui.window.0 - 2.0 * SHEET_MARGIN).clamp(1.0, WIDEST_SHEET);
-    let width = if (ui.window.0 - centred) / 2.0 < ui.sidebar_width() + space::S2 {
+    let covers = (ui.window.0 - centred) / 2.0 < ui.sidebar_width() + space::S2;
+    let width = if covers {
         (ui.window.0 - 2.0 * space::S2).max(1.0)
     } else {
         centred
     };
     let top = super::TITLEBAR.max(SHEET_MARGIN);
-    let height = (ui.window.1 - top - SHEET_MARGIN / 2.0).clamp(1.0, TALLEST_SHEET);
+    let room = (ui.window.1 - top - SHEET_MARGIN / 2.0).max(1.0);
+    let height = if covers {
+        room
+    } else {
+        room.min(TALLEST_SHEET)
+    };
     let list_width = if width < 760.0 {
         NARROW_LIST_WIDTH
     } else {

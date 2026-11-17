@@ -34,7 +34,7 @@ Climb from the window as it is. Its structure is the owner's accepted starting p
 
 **Type.** At most three sizes on a screen. Weight and tone carry hierarchy before size does. Muted text is still readable.
 
-**Space.** Content uses the window: no large dead areas next to cramped ones, nothing cut off at 720×480, nothing stretched thin at 1280×800. Long names truncate with an ellipsis, never collide.
+**Space.** Content uses the window: no large dead areas next to cramped ones, nothing cut off at 720×480, nothing stretched thin at 1280×800. Long names truncate with an ellipsis, never collide. A video takes the height the window gives it, at its own aspect ratio, not a fixed 16:9 in a capped column; controls drawn over a video sit inside the picture, not on its black bars. A toast or notice takes its own room and never covers a control. A scrolled menu shows that it scrolls.
 
 **Window frame.** No stock system title bar on any system: on Windows no white caption bar with the app name, on macOS the traffic lights sit inside ngine's own top strip, under Hyprland nothing at all. The top strip drags the window, double-click behaves as the system does, and no content collides with the window controls.
 

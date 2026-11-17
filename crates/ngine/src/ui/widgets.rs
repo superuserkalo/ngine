@@ -29,6 +29,7 @@ const MENU_WIDTH: f32 = 220.0;
 const POPUP_GAP: f32 = 4.0;
 const DIALOG_WIDTH: f32 = 380.0;
 const LIST_HEIGHT: f32 = 380.0;
+pub const LIST_FADE: f32 = 24.0;
 const METER: f32 = 3.0;
 const LOUD: f32 = 0.9;
 const CLIPPING: f32 = 0.985;
@@ -650,6 +651,7 @@ fn presets(p: &Paint, app: &Ngine, layer: &mut Vec<El>, amount: Amount, width: f
         .scroll(ScrollSpec {
             stick_bottom: false,
         })
+        .scroll_edge_fade(LIST_FADE)
         .children(items);
     let floating = Floating {
         key: &popup,
@@ -725,6 +727,11 @@ pub fn troubled_setting(p: &Paint, key: &str, label: &str, trouble: String, cont
     let hint = caption(p, &format!("{key}-hint"), trouble)
         .role("alert")
         .color(p.danger);
+    labelled(p, key, label, Some(hint), control)
+}
+
+pub fn warned_setting(p: &Paint, key: &str, label: &str, warning: String, control: El) -> El {
+    let hint = caption(p, &format!("{key}-hint"), warning).color(p.warning);
     labelled(p, key, label, Some(hint), control)
 }
 
@@ -1186,6 +1193,7 @@ pub fn select(
             .scroll(ScrollSpec {
                 stick_bottom: false,
             })
+            .scroll_edge_fade(LIST_FADE)
             .children(items);
         let floating = Floating {
             key,

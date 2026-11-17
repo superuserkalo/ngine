@@ -55,6 +55,12 @@ pub fn reserved(shortcut: &Shortcut) -> Option<&'static str> {
         .map(|(_, what)| *what)
 }
 
+fn lacks_modifier(accelerator: &str) -> bool {
+    accelerator
+        .parse::<Shortcut>()
+        .is_ok_and(|shortcut| shortcut.require_modifier().is_err())
+}
+
 pub fn is_unset(accelerator: &str) -> bool {
     accelerator.trim().is_empty()
 }
@@ -66,6 +72,7 @@ pub fn problems(hotkeys: &Hotkeys) -> [Option<String>; COUNT] {
     let parsed = all.map(parse);
     std::array::from_fn(|slot| match &parsed[slot] {
         None if is_unset(all[slot]) => None,
+        None if lacks_modifier(all[slot]) => Some(NEEDS_MODIFIER.to_owned()),
         None => Some(UNUSABLE.to_owned()),
         Some(shortcut) => {
             let uses = parsed
@@ -113,7 +120,7 @@ mod tests {
         hotkeys.record = "r".into();
         hotkeys.marker = "ctrl+alt+banana".into();
         let found = problems(&hotkeys);
-        assert_eq!(found[RECORD].as_deref(), Some(UNUSABLE));
+        assert_eq!(found[RECORD].as_deref(), Some(NEEDS_MODIFIER));
         assert_eq!(found[MARKER].as_deref(), Some(UNUSABLE));
         assert_eq!(found[SAVE_SHORT], None);
     }

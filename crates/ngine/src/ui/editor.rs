@@ -7,10 +7,10 @@ use rune::{
 };
 
 use super::widgets::{
-    Button, Field, Floating, HEADING, Look, NUMBERS, Paint, Stops, caption, empty_state, field,
-    float, keycaps, lone_switch, section, slider, surface, toggle,
+    Button, Choice, Field, Floating, HEADING, Look, NUMBERS, Paint, Segments, Stops, caption,
+    empty_state, field, float, keycaps, lone_switch, section, segmented, slider, surface,
 };
-use super::{Ui, icons, page, sheet};
+use super::{FirstRow, Ui, icons, page, sheet};
 use crate::app::{Ngine, Popup, Screen, toggle_watching};
 use crate::editor::{Editor, Exporting, FULL_VOLUME, Grip, LOUDEST_PERCENT, PERCENT_STEP, Source};
 use crate::format;
@@ -23,7 +23,7 @@ const NARROW_PANEL_WIDTH: f32 = 232.0;
 const NARROW_PANEL_BELOW: f32 = 720.0;
 const ROOMY_TRANSPORT: f32 = 600.0;
 const STEPS_FROM: f32 = 440.0;
-const SIDE_BY_SIDE_FROM: f32 = 600.0;
+const SIDE_BY_SIDE_FROM: f32 = 560.0;
 const TIMELINE_HEIGHT: f32 = 40.0;
 const BAR: f32 = 6.0;
 const HANDLE: (f32, f32) = (6.0, 28.0);
@@ -31,19 +31,26 @@ const PLAYHEAD: (f32, f32) = (2.0, 36.0);
 const MARKER: (f32, f32) = (2.0, 10.0);
 const GRAB: f32 = 10.0;
 const PROGRESS_HEIGHT: f32 = 6.0;
+const CUT_INSET: f32 = space::S3 + 2.0;
+const WIDEST_SEGMENT: f32 = 120.0;
 const PREVIEW_VOLUME_WIDTH: f32 = 72.0;
 const LEVEL_WIDTH: f32 = 140.0;
 const EXPAND: f32 = 32.0;
 const OVERLAY_WIDTH: f32 = 960.0;
+const OVERLAY_ROOM: f32 = 140.0;
 const HEADER_NEEDS: f32 = 400.0;
+const HEADER_ROW: f32 = 42.0;
+const BELOW_VIDEO: f32 = 148.0;
+const SMALLEST_VIDEO: f32 = 160.0;
 const SCRUB: f32 = 0.0;
 const MOVE_IN: f32 = 1.0;
 const MOVE_OUT: f32 = 2.0;
 
-pub const SHORTCUTS: [(&[&str], &str); 8] = [
+pub const SHORTCUTS: [(&[&str], &str); 9] = [
     (&["Space"], "Play or pause"),
     (&["←", "→"], "One frame back or forward"),
-    (&["⇧", "←"], "One second back, with → forward"),
+    (&["⇧", "←"], "One second back"),
+    (&["⇧", "→"], "One second forward"),
     (&["I"], "Mark in: where the clip starts"),
     (&["O"], "Mark out: where the clip ends"),
     (&["F"], "Full screen, and back"),
@@ -196,8 +203,16 @@ fn range(p: &Paint, editor: &Editor) -> El {
             text(format!("Clip {}", format::length(editor.clip_length())))
                 .key("clip-length")
                 .font(NUMBERS)
-                .color(p.accent),
+                .color(p.t.text),
         )
+}
+
+fn sentence(words: &str) -> String {
+    if words.ends_with(['.', '!', '?']) {
+        words.to_owned()
+    } else {
+        format!("{words}.")
+    }
 }
 
 fn with_editor(change: impl Fn(&mut Editor) + 'static) -> impl Fn(&mut Ngine) + 'static {
@@ -362,23 +377,40 @@ fn sound(p: &Paint, editor: &Editor) -> Option<El> {
     })
 }
 
-fn precise_trim(p: &Paint, editor: &Editor) -> El {
-    let precise = editor.cut == Cut::Exact;
-    let hint = "Cuts on the exact frame by re-encoding the ends";
-    toggle(
+fn cut_at(p: &Paint, editor: &Editor, width: f32) -> El {
+    let segment_width = (((width - 2.0 * CUT_INSET) / 2.0).floor() - 2.0).min(WIDEST_SEGMENT);
+    let cuts = [Cut::Fast, Cut::Exact];
+    let control = segmented(
         p,
-        "precise-trim",
-        "Precise trim",
-        Some(hint.into()),
-        precise,
-        with_editor(|editor| {
-            editor.cut = if editor.cut == Cut::Exact {
-                Cut::Fast
-            } else {
-                Cut::Exact
-            };
-        }),
+        Segments {
+            key: "trim-cut",
+            label: "Cut at",
+            choices: vec![
+                Choice::new("keyframe", "Keyframe"),
+                Choice::new("exact", "Exact frame"),
+            ],
+            selected: cuts.iter().position(|cut| *cut == editor.cut),
+            segment_width,
+        },
+        move |app, index| {
+            if let (Some(editor), Some(cut)) = (&mut app.editor, cuts.get(index)) {
+                editor.cut = *cut;
+            }
+        },
     )
+    .help("Keyframe is instant. Exact frame re-encodes the ends of the clip.");
+    col()
+        .key("trim-cut-row")
+        .px(CUT_INSET)
+        .pt(space::S2)
+        .gap(space::S2)
+        .child(
+            text("Cut at")
+                .key("trim-cut-label")
+                .font(type_::BODY)
+                .color(p.t.text),
+        )
+        .child(control)
 }
 
 fn progress(p: &Paint, done: f32) -> El {
@@ -414,8 +446,9 @@ fn exported(p: &Paint, body: El, file: &Path, length: Duration) -> El {
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_default();
     body.child(
-        text(format!("Saved {name} · {}", format::length(length)))
+        text(format!("Saved · {}", format::length(length)))
             .key("export-done")
+            .help(name)
             .role("status")
             .font(type_::LABEL)
             .color(p.good)
@@ -432,6 +465,7 @@ fn exported(p: &Paint, body: El, file: &Path, length: Duration) -> El {
                     &format!("Show in {}", platform::FILE_MANAGER),
                 )
                 .icon(&icons::FOLDER_OPEN)
+                .look(Look::Primary)
                 .build(p, move |app| app.reveal(&shown))
                 .grow(1.0),
             )
@@ -443,7 +477,7 @@ fn exported(p: &Paint, body: El, file: &Path, length: Duration) -> El {
     )
 }
 
-fn export(p: &Paint, app: &Ngine, editor: &Editor) -> El {
+fn export(p: &Paint, app: &Ngine, editor: &Editor, width: f32) -> El {
     let name = field(
         p,
         &Field {
@@ -470,11 +504,7 @@ fn export(p: &Paint, app: &Ngine, editor: &Editor) -> El {
         body = body.child(caption(
             p,
             "export-words",
-            format!(
-                "{} MP4, saved to {}",
-                format::length(editor.clip_length()),
-                app.settings.output_folder.display()
-            ),
+            format!("Saved to {}", app.settings.output_folder.display()),
         ));
     }
     body = match &editor.exporting {
@@ -504,21 +534,27 @@ fn export(p: &Paint, app: &Ngine, editor: &Editor) -> El {
         Exporting::Done { file, length } => exported(p, body, file, *length),
         Exporting::Failed(error) => body
             .child(
-                text(format!("The clip could not be exported. {error}"))
-                    .key("export-failed")
-                    .role("alert")
-                    .font(type_::LABEL)
-                    .color(p.danger)
-                    .wrap(),
+                text(format!(
+                    "The clip could not be exported. {}",
+                    sentence(error)
+                ))
+                .key("export-failed")
+                .role("alert")
+                .font(type_::LABEL)
+                .color(p.danger)
+                .wrap(),
             )
             .child(export_button(p, "Try again")),
     };
-    section(
-        p,
-        "export-section",
-        "Export",
-        vec![precise_trim(p, editor), body],
-    )
+    let mut group = col()
+        .key("export-section")
+        .padding(space::S1)
+        .fill(p.t.card)
+        .radius(radius::LG)
+        .border(p.hair, p.t.card_border)
+        .child(cut_at(p, editor, width - 2.0 * space::S1));
+    group = group.child(body);
+    group
 }
 
 fn header(p: &Paint, editor: &Editor, keys_open: bool) -> El {
@@ -546,15 +582,10 @@ fn header(p: &Paint, editor: &Editor, keys_open: bool) -> El {
                 .shrink(),
         )
         .child(
-            text(format!(
-                "{} · {} × {}",
-                format::length(editor.length()),
-                editor.info.width,
-                editor.info.height
-            ))
-            .key("editor-details")
-            .font(NUMBERS)
-            .color(p.faint),
+            text(format!("{} × {}", editor.info.width, editor.info.height))
+                .key("editor-details")
+                .font(NUMBERS)
+                .color(p.faint),
         )
         .child(spacer())
         .child(
@@ -638,11 +669,20 @@ fn expand_button(watching: bool) -> El {
         .child(icon(glyph, 16.0).color(Color::WHITE).a11y_hidden())
 }
 
+fn fitted(aspect: f32, width: f32, height: f32) -> (f32, f32) {
+    if width / height > aspect {
+        (height * aspect, height)
+    } else {
+        (width, width / aspect)
+    }
+}
+
 fn preview(p: &Paint, editor: &Editor, width: f32, height: f32) -> El {
-    let mut frame = el()
+    let (shown_width, shown_height) = fitted(aspect(editor), width, height);
+    let mut picture = el()
         .key("preview")
-        .w(width)
-        .h(height)
+        .w(shown_width)
+        .h(shown_height)
         .radius(radius::LG)
         .fill(Color::BLACK)
         .center()
@@ -653,12 +693,13 @@ fn preview(p: &Paint, editor: &Editor, width: f32, height: f32) -> El {
             }
         });
     if editor.hovered {
-        frame = frame.child(
-            expand_button(false).absolute(width - EXPAND - space::S3, height - EXPAND - space::S3),
-        );
+        picture = picture.child(expand_button(false).absolute(
+            shown_width - EXPAND - space::S3,
+            shown_height - EXPAND - space::S3,
+        ));
     }
     if let Some(failure) = &editor.failure {
-        frame = frame.child(
+        picture = picture.child(
             text(format!("The video cannot be shown: {failure}"))
                 .key("preview-failure")
                 .role("alert")
@@ -666,7 +707,78 @@ fn preview(p: &Paint, editor: &Editor, width: f32, height: f32) -> El {
                 .color(p.danger),
         );
     }
-    frame
+    el().key("preview-area")
+        .w(width)
+        .h(height)
+        .center()
+        .child(picture)
+}
+
+fn aspect(editor: &Editor) -> f32 {
+    let side = |pixels: u32| f32::from(u16::try_from(pixels).unwrap_or(u16::MAX));
+    let (width, height) = (side(editor.info.width), side(editor.info.height));
+    if width > 0.0 && height > 0.0 {
+        width / height
+    } else {
+        16.0 / 9.0
+    }
+}
+
+struct Layout {
+    side_by_side: bool,
+    panel: f32,
+    video: (f32, f32),
+}
+
+impl Layout {
+    fn fit(ui: &mut Ui<'_>, aspect: f32) -> Self {
+        let column = ui.content_width();
+        let side_by_side = column >= SIDE_BY_SIDE_FROM && ui.window.0 >= ui.window.1;
+        let panel = if column < NARROW_PANEL_BELOW {
+            NARROW_PANEL_WIDTH
+        } else {
+            PANEL_WIDTH
+        };
+        let beside = if side_by_side { panel + space::S6 } else { 0.0 };
+        let widest = (ui.room_across() - beside).max(1.0);
+        let mut layout = Self::sized(
+            ui,
+            aspect,
+            side_by_side,
+            panel,
+            widest,
+            FirstRow::BesideControls,
+        );
+        if !ui.fits_top_row(HEADER_NEEDS) {
+            layout = Self::sized(ui, aspect, side_by_side, panel, widest, FirstRow::InContent);
+        }
+        layout
+    }
+
+    fn sized(
+        ui: &mut Ui<'_>,
+        aspect: f32,
+        side_by_side: bool,
+        panel: f32,
+        widest: f32,
+        first_row: FirstRow,
+    ) -> Self {
+        let header = match first_row {
+            FirstRow::BesideControls => 0.0,
+            FirstRow::InContent => HEADER_ROW,
+        };
+        let tallest =
+            (ui.window.1 - ui.content_top(first_row) - header - BELOW_VIDEO).max(SMALLEST_VIDEO);
+        let beside = if side_by_side { panel + space::S6 } else { 0.0 };
+        let width = widest.min(tallest * aspect);
+        let video = (width, width / aspect);
+        ui.widen_to(video.0 + beside);
+        Self {
+            side_by_side,
+            panel,
+            video,
+        }
+    }
 }
 
 pub fn view(ui: &mut Ui<'_>, timeline_width: f32) -> El {
@@ -676,20 +788,9 @@ pub fn view(ui: &mut Ui<'_>, timeline_width: f32) -> El {
         return page("editor", sheet(ui, "editor").child(empty(&p)));
     };
     let keys_open = app.popup == Some(Popup::EditorKeys);
-    let width = ui.content_width();
-    let side_by_side = width >= SIDE_BY_SIDE_FROM && ui.window.0 >= ui.window.1;
-    let panel_width = if width < NARROW_PANEL_BELOW {
-        NARROW_PANEL_WIDTH
-    } else {
-        PANEL_WIDTH
-    };
-    let video_width = if side_by_side {
-        width - panel_width - space::S6
-    } else {
-        width
-    };
-    let tallest = (ui.window.1 - 260.0).max(160.0);
-    let video_height = (video_width * 9.0 / 16.0).min(tallest);
+    let layout = Layout::fit(ui, aspect(editor));
+    let (side_by_side, panel_width) = (layout.side_by_side, layout.panel);
+    let (video_width, video_height) = layout.video;
     let mut stage = col()
         .key("stage")
         .w(video_width)
@@ -710,11 +811,19 @@ pub fn view(ui: &mut Ui<'_>, timeline_width: f32) -> El {
             "No sound output could be opened, so the preview plays without sound. The clip keeps its sound.",
         ));
     }
-    let mut panel = col().key("editor-panel").gap(space::S6);
+    let mut panel = col().key("editor-panel").gap(space::S6).child(export(
+        &p,
+        app,
+        editor,
+        if side_by_side {
+            panel_width
+        } else {
+            video_width
+        },
+    ));
     if let Some(sound) = sound(&p, editor) {
         panel = panel.child(sound);
     }
-    panel = panel.child(export(&p, app, editor));
     let body = if side_by_side {
         row()
             .key("editor-body")
@@ -755,7 +864,14 @@ pub fn watched(ui: &mut Ui<'_>, timeline_width: f32) -> Option<El> {
         .pixels_fit(&editor.picture, SurfaceFit::Fit)
         .on_pointer_move(|app: &mut Ngine, _| app.pointer_moved(false));
     if editor.controls_shown(app.clock()) {
-        let overlay_width = (width - 2.0 * space::S6).min(OVERLAY_WIDTH);
+        let (shown_width, shown_height) = fitted(aspect(editor), width, height);
+        let margin = if shown_height < 2.0 * OVERLAY_ROOM {
+            space::S3
+        } else {
+            space::S6
+        };
+        let overlay_width = (shown_width - 2.0 * margin).min(OVERLAY_WIDTH);
+        let foot = (height - shown_height) / 2.0 + margin;
         let controls = col()
             .key("watching-controls")
             .w(overlay_width)
@@ -790,7 +906,7 @@ pub fn watched(ui: &mut Ui<'_>, timeline_width: f32) -> Option<El> {
         stage = stage.child(
             row()
                 .key("watching-foot")
-                .pin(Some(0.0), None, Some(0.0), Some(space::S6))
+                .pin(Some(0.0), None, Some(0.0), Some(foot))
                 .justify_center()
                 .child(controls),
         );

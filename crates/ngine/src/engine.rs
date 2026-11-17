@@ -149,6 +149,7 @@ pub struct Inputs {
     /// A [`Device::id`] from [`Inventory::microphones`], or the system's
     /// default microphone, which follows the system when it changes.
     pub microphone: Option<String>,
+    pub microphone_name: Option<String>,
     pub system: SystemSound,
 }
 

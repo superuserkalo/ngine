@@ -873,6 +873,7 @@ mod tests {
         assert_eq!(
             sound_of(&Inputs {
                 microphone: None,
+                microphone_name: None,
                 system: sounds[1].clone()
             }),
             Some(AudioApp::new(3, "Discord"))

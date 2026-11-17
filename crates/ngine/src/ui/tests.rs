@@ -276,16 +276,16 @@ fn replay_shows_what_it_holds_and_a_save_confirms_the_real_length() {
 #[test]
 fn the_replay_length_menu_puts_the_cost_beside_each_length() {
     let mut runtime = scene("replay-length-open");
-    assert_eq!(words(&runtime, "replay-length.3-label"), "1 min");
+    assert_eq!(words(&runtime, "replay-length.2-label"), "1 min");
     assert_eq!(
-        words(&runtime, "replay-length.3-detail"),
+        words(&runtime, "replay-length.2-detail"),
         "≈ 90 MB in memory"
     );
     assert_eq!(
-        words(&runtime, "replay-length.10-detail"),
-        "≈ 1.8 GB on disk"
+        words(&runtime, "replay-length.6-detail"),
+        "≈ 2.7 GB on disk"
     );
-    press(&mut runtime, "replay-length.5");
+    press(&mut runtime, "replay-length.3");
     assert_eq!(runtime.state.settings.replay.length_seconds, 120);
     assert!(!shows(&runtime, "replay-length-choices"));
 }
@@ -315,7 +315,7 @@ fn problems_show_one_banner_at_a_time_with_the_count_of_the_rest() {
     );
     assert!(
         words(&runtime, "problem-capture-restarted-detail")
-            .ends_with("One more problem after this one.")
+            .ends_with("1 more problem is waiting behind it.")
     );
     assert!(!shows(&runtime, "problem-permission-microphone"));
     press(&mut runtime, "problem-capture-restarted-dismiss");
@@ -516,7 +516,11 @@ fn a_hotkey_can_be_cleared_and_then_says_it_is_not_set() {
     assert!(!shows(&runtime, "hotkey-4-reset"));
     let problem = scene("settings-hotkey-problem");
     assert_eq!(words(&problem, "hotkey-1-row-hint"), hotkeys::USED_TWICE);
-    assert_eq!(words(&problem, "hotkey-4-row-hint"), hotkeys::UNUSABLE);
+    assert_eq!(
+        words(&problem, "hotkey-4-row-hint"),
+        hotkeys::NEEDS_MODIFIER
+    );
+    assert_eq!(words(&problem, "hotkey-4-written"), "m");
 }
 
 #[test]
@@ -596,6 +600,11 @@ fn the_library_filter_search_and_order_change_the_cards_shown() {
         words(&runtime, "library-none-found-title"),
         "Nothing matches"
     );
+    assert_eq!(
+        words(&runtime, "library-none-found-words"),
+        "No video has “bosszzz” in its name."
+    );
+    assert_eq!(words(&runtime, "library-show-all"), "Clear search");
     press(&mut runtime, "library-show-all");
     assert!(shows(&runtime, "item-0"));
     press(&mut runtime, "library-sort");
@@ -759,6 +768,10 @@ fn the_microphone_menu_starts_with_the_system_default_and_remembers_a_device() {
         runtime.state.settings.inputs.microphone.as_deref(),
         Some("usb-mv7")
     );
+    assert_eq!(
+        runtime.state.settings.inputs.microphone_name.as_deref(),
+        Some("Shure MV7")
+    );
     assert_eq!(words(&runtime, "capture-microphone-current"), "Shure MV7");
     assert_eq!(
         runtime.state.inputs().microphone.as_deref(),
@@ -769,14 +782,20 @@ fn the_microphone_menu_starts_with_the_system_default_and_remembers_a_device() {
 #[test]
 fn a_missing_microphone_records_the_default_and_the_settings_say_so() {
     let mut app = demo::idle();
-    app.edit(|settings| settings.inputs.microphone = Some("unplugged".into()));
+    app.edit(|settings| {
+        settings.inputs.microphone = Some("unplugged".into());
+        settings.inputs.microphone_name = Some("Studio microphone".into());
+    });
     app.show_section(Section::Audio);
     let runtime = runtime(app);
     assert_eq!(runtime.state.inputs().microphone, None);
-    assert!(words(&runtime, "microphone-device-row-hint").contains("not connected"));
+    assert_eq!(
+        words(&runtime, "microphone-device-row-hint"),
+        "Studio microphone is not connected, so the system default records"
+    );
     assert_eq!(
         words(&runtime, "settings-microphone-current"),
-        "System default"
+        "Studio microphone"
     );
 }
 

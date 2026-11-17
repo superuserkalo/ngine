@@ -22,6 +22,8 @@ const NARROW_SORT_WIDTH: f32 = 120.0;
 const NARROW_TOOLBAR_BELOW: f32 = 720.0;
 const SEARCH_WIDTH: f32 = 96.0;
 const NAME_HEIGHT: f32 = 20.0;
+const SELECTION_NEEDS: f32 = 360.0;
+const SELECTED_RING: f32 = 2.0;
 
 pub const UNREADABLE: &str = "This file cannot be read as a video";
 
@@ -113,13 +115,9 @@ fn selection_bar(p: &Paint, app: &Ngine) -> Option<El> {
     (count > 0).then(|| {
         row()
             .key("selection-bar")
-            .h(40.0)
-            .px(space::S3)
+            .h(CONTROL)
             .gap(space::S2)
             .center_y()
-            .radius(radius::MD)
-            .fill(p.accent.alpha(0.1))
-            .border(p.hair, p.accent.alpha(0.3))
             .child(
                 text(format!("{count} selected"))
                     .key("selection-count")
@@ -230,6 +228,14 @@ fn card(p: &Paint, app: &Ngine, index: usize, entry: &Entry, width: f32) -> El {
         .radius(radius::MD)
         .fill(Color::BLACK)
         .pixels_fit(&entry.thumbnail, SurfaceFit::Fill)
+        .border(
+            SELECTED_RING,
+            if selected {
+                p.accent
+            } else {
+                Color::TRANSPARENT
+            },
+        )
         .padding(space::S1 + 2.0)
         .justify_end()
         .items_end();
@@ -275,19 +281,6 @@ fn card(p: &Paint, app: &Ngine, index: usize, entry: &Entry, width: f32) -> El {
         .padding(space::S1)
         .gap(space::S2)
         .radius(radius::LG)
-        .fill(if selected {
-            p.accent.alpha(0.12)
-        } else {
-            Color::TRANSPARENT
-        })
-        .border(
-            p.hair,
-            if selected {
-                p.accent.alpha(0.6)
-            } else {
-                Color::TRANSPARENT
-            },
-        )
         .hover(p.t.hover)
         .press(p.t.press)
         .focusable(true)
@@ -455,19 +448,36 @@ fn empty(ui: &Ui<'_>) -> El {
     )
 }
 
-fn nothing_found(p: &Paint) -> El {
+fn nothing_found(p: &Paint, app: &Ngine) -> El {
+    let searched = app.browse.search.text.trim().to_owned();
+    let filter = app.browse.filter;
+    let (words, button) = match (searched.is_empty(), filter) {
+        (true, filter) => (
+            format!("There are no {} yet.", filter.label().to_lowercase()),
+            "Show all",
+        ),
+        (false, Filter::All) => (
+            format!("No video has “{searched}” in its name."),
+            "Clear search",
+        ),
+        (false, filter) => (
+            format!(
+                "No {} have “{searched}” in their name.",
+                filter.label().to_lowercase()
+            ),
+            "Show all",
+        ),
+    };
     empty_state(
         p,
         "library-none-found",
         &icons::SEARCH,
         "Nothing matches",
-        "No video has that name or is of that kind.".into(),
-        Some(
-            Button::new("library-show-all", "Show everything").build(p, |app| {
-                app.clear_search();
-                app.set_filter(Filter::All);
-            }),
-        ),
+        words,
+        Some(Button::new("library-show-all", button).build(p, |app| {
+            app.clear_search();
+            app.set_filter(Filter::All);
+        })),
     )
 }
 
@@ -491,6 +501,8 @@ pub fn view(ui: &mut Ui<'_>) -> El {
     let app = ui.app;
     let first = if app.library.entries.is_empty() {
         None
+    } else if let Some(bar) = selection_bar(&p, app) {
+        ui.top_row(bar, SELECTION_NEEDS)
     } else {
         let (bar, needs) = toolbar(ui);
         ui.top_row(bar, needs)
@@ -502,19 +514,15 @@ pub fn view(ui: &mut Ui<'_>) -> El {
         if let Some(bar) = first {
             content = content.child(bar);
         }
-        if let Some(bar) = selection_bar(&p, app) {
-            content = content.child(bar);
-        }
         let shown = app.shown();
         content = if shown.is_empty() {
-            content.child(nothing_found(&p))
+            content.child(nothing_found(&p, app))
         } else {
             content.child(grid(ui, &shown)).child(
                 text(total(app, &shown))
                     .key("library-total")
                     .font(CAPTION)
-                    .color(p.faint)
-                    .self_center(),
+                    .color(p.faint),
             )
         };
     }

@@ -242,7 +242,7 @@ fn the_editor_shows_the_preview_the_clip_and_the_markers_at_their_times() {
         words(&runtime, "editor-name"),
         "Recording 2026-11-16 14.03.22"
     );
-    assert_eq!(words(&runtime, "editor-details"), "2 min 5 s · 2560 × 1440");
+    assert_eq!(words(&runtime, "editor-details"), "2560 × 1440");
     assert_eq!(words(&runtime, "position"), "00:31.0 / 02:05.0");
     assert_eq!(words(&runtime, "clip-length"), "Clip 42 s");
     assert_eq!(words(&runtime, "clip-points"), "00:20.0 – 01:02.0");
@@ -265,7 +265,7 @@ fn the_editor_shows_the_preview_the_clip_and_the_markers_at_their_times() {
         "clip-system-on",
         "clip-microphone-volume",
         "clip-microphone-on",
-        "precise-trim",
+        "trim-cut",
         "export",
     ] {
         assert!(shows(&runtime, key), "{key}");
@@ -340,9 +340,9 @@ fn each_sound_source_can_be_muted_and_the_cut_chosen() {
     assert!(mix.microphone.abs() < f32::EPSILON);
     assert!((mix.system - 1.0).abs() < f32::EPSILON);
 
-    press(&mut runtime, "precise-trim");
+    press(&mut runtime, "trim-cut.exact");
     assert_eq!(editor(&runtime).cut, Cut::Exact);
-    press(&mut runtime, "precise-trim");
+    press(&mut runtime, "trim-cut.keyframe");
     assert_eq!(editor(&runtime).cut, Cut::Fast);
 
     let fixed = scene("editor-mix-only");
@@ -359,17 +359,14 @@ fn an_export_shows_its_progress_its_file_or_its_failure() {
     assert!(!shows(&running, "export"));
 
     let done = scene("editor-exported");
-    assert_eq!(
-        words(&done, "export-done"),
-        "Saved Clip 2026-11-16 14.09.51.mp4 · 42 s"
-    );
+    assert_eq!(words(&done, "export-done"), "Saved · 42 s");
     assert!(shows(&done, "export-show"));
     assert_eq!(words(&done, "export"), "Export again");
 
     let mut failed = scene("editor-export-failed");
     assert_eq!(
         words(&failed, "export-failed"),
-        "The clip could not be exported. The disk is full"
+        "The clip could not be exported. The disk is full."
     );
     assert_eq!(words(&failed, "export"), "Try again");
     press(&mut failed, "editor-back");

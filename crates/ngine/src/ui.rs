@@ -44,6 +44,7 @@ pub struct Ui<'a> {
     pub band: f32,
     controls: (f32, f32),
     top: Option<El>,
+    widest: f32,
 }
 
 /// The titlebar ngine draws in place of the system's: the window's own
@@ -88,7 +89,15 @@ impl Ui<'_> {
     }
 
     pub fn content_width(&self) -> f32 {
-        (self.main_width() - 2.0 * PAGE_PADDING).clamp(1.0, WIDEST_CONTENT)
+        (self.main_width() - 2.0 * PAGE_PADDING).clamp(1.0, self.widest)
+    }
+
+    pub fn room_across(&self) -> f32 {
+        (self.main_width() - 2.0 * PAGE_PADDING).max(1.0)
+    }
+
+    pub fn widen_to(&mut self, width: f32) {
+        self.widest = width.max(1.0);
     }
 
     fn rail_width(&self) -> f32 {
@@ -112,23 +121,46 @@ impl Ui<'_> {
     /// Returns the row when there is no such strip, or it needs more than
     /// `needs` points the strip has, for the screen to lay out first.
     pub fn top_row(&mut self, row: El, needs: f32) -> Option<El> {
-        if self.band > 0.0 && self.top_row_span().1 >= needs {
+        if self.fits_top_row(needs) {
             self.top = Some(row);
             None
         } else {
             Some(row)
         }
     }
+
+    pub fn fits_top_row(&self, needs: f32) -> bool {
+        self.band > 0.0 && self.top_row_span().1 >= needs
+    }
+
+    pub fn content_top(&self, first_row: FirstRow) -> f32 {
+        self.band + sheet_top(self.band, first_row)
+    }
 }
 
-pub fn sheet(ui: &Ui<'_>, key: &str) -> El {
-    let top = if ui.top.is_some() {
-        TOP_ROW_GAP - (ui.band - widgets::CONTROL) / 2.0
-    } else if ui.band > 0.0 {
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum FirstRow {
+    BesideControls,
+    InContent,
+}
+
+fn sheet_top(band: f32, first_row: FirstRow) -> f32 {
+    if first_row == FirstRow::BesideControls {
+        TOP_ROW_GAP - (band - widgets::CONTROL) / 2.0
+    } else if band > 0.0 {
         space::S1
     } else {
         PAGE_PADDING
+    }
+}
+
+pub fn sheet(ui: &Ui<'_>, key: &str) -> El {
+    let first_row = if ui.top.is_some() {
+        FirstRow::BesideControls
+    } else {
+        FirstRow::InContent
     };
+    let top = sheet_top(ui.band, first_row);
     col()
         .key(key)
         .w(ui.content_width())
@@ -521,8 +553,8 @@ fn banners(p: &Paint, app: &Ngine, width: f32) -> Option<El> {
         let more = app.problems.len() - 1 + usize::from(app.settings_were_reset);
         if more > 0 {
             one.detail = match more {
-                1 => format!("{} One more problem after this one.", one.detail),
-                many => format!("{} {many} more problems after this one.", one.detail),
+                1 => format!("{} 1 more problem is waiting behind it.", one.detail),
+                many => format!("{} {many} more problems are waiting behind it.", one.detail),
             };
         }
         banner(p, one, |app| app.dismiss_problem(0))
@@ -555,7 +587,11 @@ fn banners(p: &Paint, app: &Ngine, width: f32) -> Option<El> {
 }
 
 fn notice(p: &Paint, app: &Ngine) -> Option<El> {
-    let (words, colour, glyph) = match (&app.notice, &app.confirmation) {
+    let confirmation = app
+        .confirmation
+        .as_ref()
+        .filter(|_| app.problems.is_empty());
+    let (words, colour, glyph) = match (&app.notice, confirmation) {
         (Some(notice), _) if notice.is_error => {
             (notice.text.clone(), p.danger, &icons::TRIANGLE_ALERT)
         }
@@ -566,7 +602,9 @@ fn notice(p: &Paint, app: &Ngine) -> Option<El> {
     Some(
         row()
             .key("notice-bar")
-            .pin(Some(0.0), None, Some(0.0), Some(space::S3 + 2.0))
+            .w_full()
+            .pt(space::S2)
+            .pb(space::S3)
             .center()
             .child(
                 row()
@@ -636,6 +674,7 @@ pub fn view(app: &Ngine, cx: &mut Cx<Ngine>) -> El {
         band: top_band(chrome, cx.titlebar_inset() > 0.0),
         controls: (chrome.leading.max(cx.titlebar_inset()), chrome.trailing),
         top: None,
+        widest: WIDEST_CONTENT,
     };
     if app.watching()
         && let Some(watched) = editor::watched(&mut ui, timeline)

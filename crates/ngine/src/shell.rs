@@ -6,21 +6,23 @@ use std::time::Duration;
 use ngine_capture::Capturer;
 use ngine_recorder::replay::remove_leftovers;
 use rune::dirs::AppDirs;
-use rune::{App, AppHandle, AppSpec, OverlayHandle, ShortcutError, ShortcutId};
+use rune::{App, AppHandle, AppSpec, OverlayHandle, OverlayInput, ShortcutError, ShortcutId};
 
 use crate::app::{self, Action, NAME, Ngine, SMALLEST_WINDOW, WINDOW_SIZE};
 use crate::bar::{self, BarState};
 use crate::cli::{Command, Reply};
-use crate::engine::Engine;
 use crate::engine::fake::{Clock, FakeEngine};
 use crate::engine::real::RealEngine;
+use crate::engine::{Engine, Target};
 use crate::hotkeys;
 use crate::ipc::{self, Address};
 use crate::platform::{self, Autostart, Folders};
+use crate::selection::Area;
 use crate::settings::{Hotkeys, Settings, Store};
 use crate::toast::{self, Toast};
 use crate::tray::{self, Tray};
 use crate::ui;
+use crate::ui::selector::{self, Selector};
 
 const SETTINGS_FILE: &str = "settings.json";
 const REPLAY_BUFFER_FOLDER: &str = "replay";
@@ -30,6 +32,8 @@ const ANSWER_TIMEOUT: Duration = Duration::from_secs(5);
 const TOAST_FADE: Duration = Duration::from_millis(200);
 const SAMPLE_CONFIRMATION: &str = "Replay saved · 31 s";
 pub const OVERLAY_FLAG: &str = "--overlay";
+/// Tooling draws the overlay that chooses a part of a screen.
+pub const SELECTOR_FLAG: &str = "--selector";
 /// Tooling draws the library of the folder that follows this flag.
 pub const LIBRARY_FLAG: &str = "--library-of";
 /// Tooling draws the clip editor on the video that follows this flag.
@@ -43,6 +47,7 @@ pub const EDITOR_AT_FLAG: &str = "--editor-at";
 pub struct Shell {
     handle: AppHandle<Ngine>,
     toast: OverlayHandle<Toast>,
+    selector: OverlayHandle<Selector>,
     tray: Option<Tray>,
     shown_tray: Option<tray::Model>,
     shortcuts: Vec<ShortcutId>,
@@ -74,6 +79,40 @@ impl Shell {
 
     pub fn hide_toast(&self) {
         self.toast.fade_out(TOAST_FADE);
+    }
+
+    fn place_selector(&self, screen: &Target) {
+        if let Some(display) = screen.display {
+            self.selector
+                .set_display(platform::overlay_display(display.id));
+        }
+    }
+
+    /// Shows the overlay that chooses a part of `screen`, starting from
+    /// `area`, and gives it the keyboard.
+    pub fn choose_selection(&self, screen: &Target, area: Option<Area>) {
+        self.place_selector(screen);
+        self.selector.set_input(OverlayInput::All);
+        let screen = screen.clone();
+        self.selector
+            .update(move |selector, _| selector.choose_on(screen, area));
+        self.selector.show();
+        self.selector.request_keys();
+    }
+
+    /// Frames `area` of `screen` while it records, letting every click
+    /// through.
+    pub fn frame_selection(&self, screen: &Target, area: Area) {
+        self.place_selector(screen);
+        self.selector.set_input(OverlayInput::None);
+        let screen = screen.clone();
+        self.selector
+            .update(move |selector, _| selector.frame(screen, area));
+        self.selector.show();
+    }
+
+    pub fn hide_selector(&self) {
+        self.selector.hide();
     }
 
     pub fn show_tray(&mut self, model: tray::Model) {
@@ -259,6 +298,16 @@ pub fn run(background: bool) -> Result<(), String> {
     }
     let toast = app.overlay(toast::spec(), Toast::default());
     let handle = app.handle();
+    let answers = handle.clone();
+    let selector = app.overlay(
+        selector::spec(),
+        Selector::answering(move |answer| {
+            answers.update(move |app, tx| {
+                app.selection_answered(answer);
+                tx.wake_after(Duration::ZERO);
+            });
+        }),
+    );
     let commands = handle.clone();
     let server = ipc::serve(&address, move |command| ask(&commands, command))
         .map_err(|error| format!("ngine could not listen for commands: {error}"))?;
@@ -267,6 +316,7 @@ pub fn run(background: bool) -> Result<(), String> {
         app.attach(Shell {
             handle: attached,
             toast,
+            selector,
             tray: None,
             shown_tray: None,
             shortcuts: Vec::new(),
@@ -316,6 +366,19 @@ pub fn run_tooling(mut arguments: Vec<String>) -> Result<(), String> {
             .try_run();
     }
     let wanted = arguments.len();
+    arguments.retain(|argument| argument != SELECTOR_FLAG);
+    if arguments.len() < wanted {
+        let spec = AppSpec {
+            scenes: selector::SCENES,
+            ..AppSpec::new(
+                selector::NAME,
+                selector::SAMPLE_SIZE,
+                selector::sample,
+                selector::view,
+            )
+        };
+        return App::new(spec).args(arguments).try_run();
+    }
     arguments.retain(|argument| argument != OVERLAY_FLAG);
     if arguments.len() == wanted {
         return window_app().args(arguments).try_run();

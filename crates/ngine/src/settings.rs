@@ -3,8 +3,10 @@ use std::path::{Path, PathBuf};
 use rune::prefs::{Prefs, PrefsError};
 
 use crate::engine::{
-    Audio, AudioSource, Codec, Device, Inputs, Quality, ReplayStorage, SystemSound, Tracks, Video,
+    Audio, AudioSource, Codec, Device, Inputs, Quality, Region, ReplayStorage, SystemSound, Tracks,
+    Video,
 };
+use crate::selection::Area;
 
 pub const FRAME_RATES: [u16; 3] = [30, 60, 120];
 pub const REPLAY_LENGTHS: [u16; 12] = [15, 30, 45, 60, 90, 120, 180, 300, 600, 900, 1200, 1800];
@@ -35,6 +37,7 @@ pub struct ReplaySettings {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Hotkeys {
     pub record: String,
+    pub selection: String,
     pub save_short: String,
     pub save_custom: String,
     pub save_everything: String,
@@ -42,11 +45,12 @@ pub struct Hotkeys {
 }
 
 impl Hotkeys {
-    pub const COUNT: usize = 5;
+    pub const COUNT: usize = 6;
 
     pub fn all(&self) -> [&str; Self::COUNT] {
         [
             &self.record,
+            &self.selection,
             &self.save_short,
             &self.save_custom,
             &self.save_everything,
@@ -57,6 +61,7 @@ impl Hotkeys {
     pub fn set(&mut self, slot: usize, accelerator: String) {
         let slots = [
             &mut self.record,
+            &mut self.selection,
             &mut self.save_short,
             &mut self.save_custom,
             &mut self.save_everything,
@@ -85,6 +90,8 @@ pub struct Settings {
     pub hotkeys: Hotkeys,
     pub start_at_login: bool,
     pub announcements: Announcements,
+    /// The part of a screen recorded last, offered again next time.
+    pub selection: Option<Region>,
 }
 
 impl Settings {
@@ -118,6 +125,7 @@ impl Settings {
             output_folder,
             hotkeys: Hotkeys {
                 record: "ctrl+alt+r".into(),
+                selection: "ctrl+alt+shift+r".into(),
                 save_short: "ctrl+alt+s".into(),
                 save_custom: "ctrl+alt+d".into(),
                 save_everything: "ctrl+alt+a".into(),
@@ -128,6 +136,7 @@ impl Settings {
                 overlay: true,
                 desktop: true,
             },
+            selection: None,
         }
     }
 }
@@ -235,7 +244,13 @@ fn entries(settings: &Settings) -> Vec<(&'static str, Entry)> {
         hotkeys,
         start_at_login,
         announcements,
+        selection,
     } = settings;
+    let selection_part = |part: fn(&Region) -> u32| {
+        selection
+            .as_ref()
+            .map_or(Entry::Unset, |region| Entry::Number(part(region)))
+    };
     vec![
         ("video.codec", Entry::Text(video.codec.name().into())),
         ("video.quality", Entry::Text(video.quality.name().into())),
@@ -291,6 +306,7 @@ fn entries(settings: &Settings) -> Vec<(&'static str, Entry)> {
         ("replay.start_with_app", Entry::Flag(replay.start_with_app)),
         ("output_folder", folder_entry(output_folder)),
         ("hotkeys.record", Entry::Text(hotkeys.record.clone())),
+        ("hotkeys.selection", Entry::Text(hotkeys.selection.clone())),
         (
             "hotkeys.save_short",
             Entry::Text(hotkeys.save_short.clone()),
@@ -307,6 +323,22 @@ fn entries(settings: &Settings) -> Vec<(&'static str, Entry)> {
         ("start_at_login", Entry::Flag(*start_at_login)),
         ("announcements.overlay", Entry::Flag(announcements.overlay)),
         ("announcements.desktop", Entry::Flag(announcements.desktop)),
+        (
+            "selection.screen",
+            selection
+                .as_ref()
+                .map_or(Entry::Unset, |region| Entry::Text(region.screen.clone())),
+        ),
+        ("selection.x", selection_part(|region| region.area.x)),
+        ("selection.y", selection_part(|region| region.area.y)),
+        (
+            "selection.width",
+            selection_part(|region| region.area.width),
+        ),
+        (
+            "selection.height",
+            selection_part(|region| region.area.height),
+        ),
     ]
 }
 
@@ -356,6 +388,21 @@ impl Reader<'_> {
             .map_or(default, |volume| volume.min(FULL_VOLUME))
     }
 
+    fn selection(&self) -> Option<Region> {
+        let number = |key: &str| self.0.get::<u32>(key);
+        let area = Area::new(
+            number("selection.x")? & !1,
+            number("selection.y")? & !1,
+            number("selection.width")? & !1,
+            number("selection.height")? & !1,
+        );
+        Some(Region {
+            screen: self.text("selection.screen")?,
+            area,
+        })
+        .filter(|region| region.area.is_usable())
+    }
+
     fn source(&self, enabled: &str, volume: &str, default: AudioSource) -> AudioSource {
         AudioSource {
             enabled: self.flag(enabled, default.enabled),
@@ -375,6 +422,7 @@ fn read(prefs: &Prefs, defaults: Settings) -> Settings {
         hotkeys,
         start_at_login,
         announcements,
+        selection,
     } = defaults;
     let length_seconds = reader.seconds("replay.length_seconds", replay.length_seconds);
     Settings {
@@ -421,6 +469,7 @@ fn read(prefs: &Prefs, defaults: Settings) -> Settings {
         output_folder: reader.folder("output_folder", output_folder),
         hotkeys: Hotkeys {
             record: reader.hotkey("hotkeys.record", hotkeys.record),
+            selection: reader.hotkey("hotkeys.selection", hotkeys.selection),
             save_short: reader.hotkey("hotkeys.save_short", hotkeys.save_short),
             save_custom: reader.hotkey("hotkeys.save_custom", hotkeys.save_custom),
             save_everything: reader.hotkey("hotkeys.save_everything", hotkeys.save_everything),
@@ -431,6 +480,7 @@ fn read(prefs: &Prefs, defaults: Settings) -> Settings {
             overlay: reader.flag("announcements.overlay", announcements.overlay),
             desktop: reader.flag("announcements.desktop", announcements.desktop),
         },
+        selection: reader.selection().or(selection),
     }
 }
 
@@ -554,6 +604,10 @@ mod tests {
             overlay: false,
             desktop: false,
         };
+        settings.selection = Some(Region {
+            screen: "screen-69733382".into(),
+            area: Area::new(200, 100, 1280, 720),
+        });
         settings
     }
 

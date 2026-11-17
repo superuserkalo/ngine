@@ -1,10 +1,12 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use super::{Action, Ngine, demo};
+use super::{Action, Ngine, SELECTION_WHILE_RECORDING, demo};
 use crate::cli::Command;
-use crate::engine::{Permission, Problem, ReplaySpan};
+use crate::engine::{Permission, Problem, Region, ReplaySpan, TargetKind};
+use crate::selection::Area;
 use crate::settings::Store;
+use crate::ui::selector::Answer;
 
 fn pass(app: &mut Ngine, time: Duration) {
     if let Some(simulator) = &app.simulator {
@@ -17,6 +19,57 @@ fn temp_file(test: &str) -> PathBuf {
     let folder = std::env::temp_dir().join(format!("ngine-app-{test}-{}", std::process::id()));
     std::fs::create_dir_all(&folder).expect("a temp folder");
     folder.join("settings.json")
+}
+
+fn region(area: Area) -> Region {
+    Region {
+        screen: "screen-1".into(),
+        area,
+    }
+}
+
+#[test]
+fn the_selection_hotkey_opens_the_overlay_and_its_answer_records_that_part() {
+    let mut app = demo::idle();
+    app.perform(Action::RecordSelection);
+    assert!(app.selecting);
+    assert!(app.notice.is_none());
+
+    app.selection_answered(Answer::Record(region(Area::new(200, 100, 1280, 720))));
+    pass(&mut app, Duration::from_secs(3));
+
+    assert!(!app.selecting);
+    let recording = app.status.recording.clone().expect("a recording runs");
+    assert_eq!(recording.target.kind, TargetKind::Selection);
+    assert_eq!(recording.target.detail, "1280 × 720 on Built-in display");
+    assert_eq!(
+        app.settings.selection,
+        Some(region(Area::new(200, 100, 1280, 720)))
+    );
+    assert_eq!(app.open_selector(), Err(SELECTION_WHILE_RECORDING.into()));
+    app.perform(Action::RecordSelection);
+    pass(&mut app, Duration::from_secs(1));
+    assert!(app.status.recording.is_none());
+}
+
+#[test]
+fn a_cancelled_selection_records_nothing_and_the_last_part_is_offered_on_its_screen() {
+    let mut app = demo::idle();
+    app.edit(|settings| settings.selection = Some(region(Area::new(200, 100, 1280, 720))));
+    assert_eq!(
+        app.selection_screen().map(|screen| screen.id),
+        Some("screen-1".into())
+    );
+    app.open_selector().expect("the overlay opens");
+    app.selection_answered(Answer::Cancel);
+    pass(&mut app, Duration::from_secs(1));
+
+    assert!(!app.selecting);
+    assert!(app.status.recording.is_none());
+    assert_ne!(
+        app.target.as_ref().map(|target| target.kind),
+        Some(TargetKind::Selection)
+    );
 }
 
 #[test]

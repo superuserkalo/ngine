@@ -2,6 +2,9 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use crate::format;
+use crate::selection::Area;
+
 pub mod fake;
 pub mod real;
 
@@ -10,6 +13,26 @@ pub enum TargetKind {
     Screen,
     Window,
     App,
+    /// A rectangle of a screen.
+    Selection,
+}
+
+/// The display a screen target shows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Display {
+    /// The system's own number for the display.
+    pub id: u64,
+    /// In pixels.
+    pub width: u32,
+    pub height: u32,
+}
+
+/// The part of a screen a selection records.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Region {
+    /// The [`Target::id`] of the screen.
+    pub screen: String,
+    pub area: Area,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -24,6 +47,11 @@ pub struct Target {
     /// For a window, that it is minimised or on another desktop or Space,
     /// so it cannot be seen right now.
     pub elsewhere: bool,
+    /// For a screen or a selection, the display it is on, where the system
+    /// says.
+    pub display: Option<Display>,
+    /// For a selection, the part of its screen.
+    pub region: Option<Region>,
 }
 
 impl Target {
@@ -40,7 +68,37 @@ impl Target {
             detail: detail.into(),
             owner: None,
             elsewhere: false,
+            display: None,
+            region: None,
         }
+    }
+
+    /// The part `region` of the screen `screen`.
+    pub fn selection(screen: &Target, region: Region) -> Self {
+        let area = region.area;
+        Self {
+            id: format!(
+                "selection-{}-{}-{}-{}-{}",
+                screen.id, area.x, area.y, area.width, area.height
+            ),
+            kind: TargetKind::Selection,
+            name: "Selection".into(),
+            detail: format!(
+                "{} on {}",
+                format::dimensions(area.width, area.height),
+                screen.name
+            ),
+            owner: None,
+            elsewhere: false,
+            display: screen.display,
+            region: Some(region),
+        }
+    }
+
+    #[must_use]
+    pub fn on_display(mut self, display: Display) -> Self {
+        self.display = Some(display);
+        self
     }
 
     #[must_use]

@@ -4,9 +4,9 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use super::{
-    Audio, Capabilities, Codec, Device, Engine, Event, Inventory, Levels, Problem, Quality,
-    Recording, RecordingRequest, Refusal, Replay, ReplayRequest, ReplaySpan, ReplayStorage, Status,
-    SystemSound, Target, TargetKind, Tracks, Video,
+    Audio, Capabilities, Codec, Device, Display, Engine, Event, Inventory, Levels, Problem,
+    Quality, Recording, RecordingRequest, Refusal, Replay, ReplayRequest, ReplaySpan,
+    ReplayStorage, Status, SystemSound, Target, TargetKind, Tracks, Video,
 };
 
 const PICKER_DELAY: Duration = Duration::from_millis(600);
@@ -206,13 +206,23 @@ fn screens() -> Vec<Target> {
             "screen-1",
             "Built-in display",
             "3024 × 1964",
-        ),
+        )
+        .on_display(Display {
+            id: 1,
+            width: 3024,
+            height: 1964,
+        }),
         target(
             TargetKind::Screen,
             "screen-2",
             "LG UltraGear",
             "2560 × 1440",
-        ),
+        )
+        .on_display(Display {
+            id: 2,
+            width: 2560,
+            height: 1440,
+        }),
     ]
 }
 

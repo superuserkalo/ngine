@@ -8,13 +8,15 @@ use crate::settings::{Hotkeys, SHORT_SAVE_SECONDS, Settings};
 
 pub const COUNT: usize = Hotkeys::COUNT;
 pub const RECORD: usize = 0;
-pub const SAVE_SHORT: usize = 1;
-pub const SAVE_CUSTOM: usize = 2;
-pub const SAVE_EVERYTHING: usize = 3;
-pub const MARKER: usize = 4;
+pub const SELECTION: usize = 1;
+pub const SAVE_SHORT: usize = 2;
+pub const SAVE_CUSTOM: usize = 3;
+pub const SAVE_EVERYTHING: usize = 4;
+pub const MARKER: usize = 5;
 
 pub const ACTIONS: [Action; COUNT] = [
     Action::ToggleRecording,
+    Action::RecordSelection,
     Action::SaveShort,
     Action::SaveCustom,
     Action::SaveEverything,
@@ -33,6 +35,7 @@ fn seconds(seconds: u16) -> String {
 pub fn label(slot: usize, settings: &Settings) -> String {
     match slot {
         RECORD => "Start or stop recording".into(),
+        SELECTION => "Record a selection".into(),
         SAVE_SHORT => format!("Save the last {}", seconds(SHORT_SAVE_SECONDS)),
         SAVE_CUSTOM => format!("Save the last {}", seconds(settings.replay.save_seconds)),
         SAVE_EVERYTHING => "Save the whole replay".into(),

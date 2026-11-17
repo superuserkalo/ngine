@@ -46,6 +46,14 @@ fn xml_text(text: &str) -> String {
 /// The window keeps the system's own traffic lights over a content view that
 /// fills it, and only the strips ngine marks move it. A titlebar ngine drew
 /// itself would have Rune move the lights, which macOS 26 refuses.
+/// Where an overlay for the display with the capture id `id` goes: macOS
+/// numbers both with the same `CGDirectDisplayID`.
+pub fn overlay_display(id: u64) -> rune::DisplayTarget {
+    u32::try_from(id).map_or(rune::DisplayTarget::UnderPointer, |id| {
+        rune::DisplayTarget::Native(rune::NativeDisplayId::MacOS(id))
+    })
+}
+
 pub fn window_frame<S>(app: rune::App<S>) -> rune::App<S> {
     app.chrome(rune::Chrome {
         full_size_content: true,

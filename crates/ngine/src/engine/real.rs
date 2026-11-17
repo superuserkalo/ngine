@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::time::{Duration, SystemTime};
 
+use ngine_capture::Region as CaptureRegion;
 use ngine_capture::{
     AudioApp, CaptureError, Capturer, PickedTarget, PickerOptions, RestoreToken, Targets,
 };
@@ -21,9 +22,10 @@ use crate::format;
 use crate::work::{Job, Progress};
 
 use super::{
-    Audio, AudioSource, Capabilities, Codec, Device, Engine, Event, Inputs, Inventory, Levels,
-    Permission, Problem, Quality, Recording, RecordingRequest, Refusal, Replay, ReplayRequest,
-    ReplaySpan, ReplayStorage, Status, SystemSound, Target, TargetKind, Tracks, Video,
+    Audio, AudioSource, Capabilities, Codec, Device, Display, Engine, Event, Inputs, Inventory,
+    Levels, Permission, Problem, Quality, Recording, RecordingRequest, Refusal, Replay,
+    ReplayRequest, ReplaySpan, ReplayStorage, Status, SystemSound, Target, TargetKind, Tracks,
+    Video,
 };
 
 const BYTES_PER_MB: u64 = 1_000_000;
@@ -268,7 +270,7 @@ fn app_sounds(apps: impl IntoIterator<Item = (u64, String)>) -> Vec<SystemSound>
 }
 
 fn size(size: ngine_capture::Size) -> String {
-    format!("{} × {}", size.width, size.height)
+    format::dimensions(size.width, size.height)
 }
 
 impl RealEngine {
@@ -312,7 +314,12 @@ impl RealEngine {
                 TargetKind::Screen,
                 screen.name.clone(),
                 size(screen.size),
-            );
+            )
+            .on_display(Display {
+                id: screen.id.0,
+                width: screen.size.width,
+                height: screen.size.height,
+            });
             sources.push(self.remember(target, screen.into()));
         }
         let shown = listed.windows.into_iter().filter(|window| {
@@ -401,6 +408,22 @@ impl RealEngine {
         }
     }
 
+    /// What capture records for `target`: a listed or picked target, or for
+    /// a selection the part of its screen.
+    fn capture_target(&self, target: &Target) -> Option<ngine_capture::Target> {
+        match &target.region {
+            None => self.known.get(&target.id).cloned(),
+            Some(region) => {
+                let area = region.area;
+                let part = CaptureRegion::new(area.x, area.y, area.width, area.height);
+                self.known
+                    .get(&region.screen)
+                    .cloned()
+                    .map(|screen| screen.with_region(part))
+            }
+        }
+    }
+
     fn microphone_in_use(&self, wanted: Option<&String>) -> Option<String> {
         let wanted = wanted?;
         let present = self
@@ -452,9 +475,7 @@ impl RealEngine {
         if !reusable && !changed_in_place {
             self.stop_session();
             let capture = self
-                .known
-                .get(&target.id)
-                .cloned()
+                .capture_target(target)
                 .ok_or(Refusal::Blocked(Problem::CaptureLost))?;
             let config = RecorderConfig {
                 video: video_settings(video),
@@ -482,7 +503,7 @@ impl RealEngine {
     }
 
     fn change_capture_in_place(&mut self, target: &Target, key: &SessionKey) -> bool {
-        let Some(capture) = self.known.get(&target.id).cloned() else {
+        let Some(capture) = self.capture_target(target) else {
             return false;
         };
         let setup = self.capture_setup(capture, key.audio, &key.inputs);

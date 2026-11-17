@@ -411,6 +411,29 @@ fn the_audio_settings_switch_sources_and_tracks() {
 }
 
 #[test]
+fn the_sources_offer_a_selection_and_the_source_row_says_its_size_and_screen() {
+    let mut runtime = scene("sources-open");
+    assert_eq!(words(&runtime, "source-selection"), "Selection…");
+    press(&mut runtime, "source-selection");
+    assert!(runtime.state.selecting);
+
+    runtime.update(|app, _| {
+        app.selection_answered(crate::ui::selector::Answer::Record(crate::engine::Region {
+            screen: "screen-1".into(),
+            area: crate::selection::Area::new(200, 100, 1280, 720),
+        }));
+    });
+    runtime.frame(FRAME);
+    runtime.settle_all();
+
+    assert_eq!(words(&runtime, "source-name"), "Selection");
+    assert_eq!(
+        words(&runtime, "source-detail"),
+        "1280 × 720 on Built-in display"
+    );
+}
+
+#[test]
 fn a_slider_moves_to_the_stop_under_the_pointer() {
     let mut runtime = settings(Section::Audio);
     let track = element(&runtime, "system-volume").rect;
@@ -453,15 +476,15 @@ fn a_shorter_buffer_shortens_the_custom_save_length() {
 #[test]
 fn the_hotkey_recorder_takes_the_pressed_keys() {
     let mut runtime = settings(Section::Hotkeys);
-    assert_eq!(words(&runtime, "hotkey-4-caps"), caps("ctrl+alt+m"));
-    press(&mut runtime, "hotkey-4");
+    assert_eq!(words(&runtime, "hotkey-5-caps"), caps("ctrl+alt+m"));
+    press(&mut runtime, "hotkey-5");
     assert!(runtime.state.is_capturing(hotkeys::MARKER));
     assert_eq!(
-        words(&runtime, "hotkey-4-waiting"),
+        words(&runtime, "hotkey-5-waiting"),
         super::settings::WAITING_FOR_KEYS
     );
     assert_eq!(
-        words(&runtime, "hotkey-4-row-hint"),
+        words(&runtime, "hotkey-5-row-hint"),
         super::settings::recorder_hint()
     );
     let ctrl_shift = Mods {
@@ -477,21 +500,21 @@ fn the_hotkey_recorder_takes_the_pressed_keys() {
 #[test]
 fn escape_cancels_the_hotkey_recorder_and_keeps_the_hotkey() {
     let mut runtime = settings(Section::Hotkeys);
-    press(&mut runtime, "hotkey-4");
+    press(&mut runtime, "hotkey-5");
     physical(&mut runtime, PhysicalKeyCode::Escape, Mods::default());
     assert!(runtime.state.capture.is_none());
     assert_eq!(runtime.state.settings.hotkeys.marker, "ctrl+alt+m");
-    assert!(shows(&runtime, "hotkey-4-caps"));
+    assert!(shows(&runtime, "hotkey-5-caps"));
 }
 
 #[test]
 fn a_hotkey_another_action_has_is_refused_with_its_name() {
     let mut runtime = settings(Section::Hotkeys);
-    press(&mut runtime, "hotkey-4");
+    press(&mut runtime, "hotkey-5");
     physical(&mut runtime, PhysicalKeyCode::KeyR, ctrl_alt());
     assert_eq!(runtime.state.settings.hotkeys.marker, "ctrl+alt+m");
     assert_eq!(
-        words(&runtime, "hotkey-4-row-hint"),
+        words(&runtime, "hotkey-5-row-hint"),
         format!(
             "{} is already used for “Start or stop recording”",
             caps("ctrl+alt+r")
@@ -499,7 +522,7 @@ fn a_hotkey_another_action_has_is_refused_with_its_name() {
     );
     physical(&mut runtime, PhysicalKeyCode::KeyM, Mods::default());
     assert_eq!(
-        words(&runtime, "hotkey-4-row-hint"),
+        words(&runtime, "hotkey-5-row-hint"),
         hotkeys::NEEDS_MODIFIER
     );
 }
@@ -507,20 +530,20 @@ fn a_hotkey_another_action_has_is_refused_with_its_name() {
 #[test]
 fn a_hotkey_can_be_cleared_and_then_says_it_is_not_set() {
     let mut runtime = settings(Section::Hotkeys);
-    press(&mut runtime, "hotkey-4-clear");
+    press(&mut runtime, "hotkey-5-clear");
     assert_eq!(runtime.state.settings.hotkeys.marker, "");
-    assert_eq!(words(&runtime, "hotkey-4-unset"), super::settings::NOT_SET);
-    assert!(!shows(&runtime, "hotkey-4-clear"));
-    press(&mut runtime, "hotkey-4-reset");
+    assert_eq!(words(&runtime, "hotkey-5-unset"), super::settings::NOT_SET);
+    assert!(!shows(&runtime, "hotkey-5-clear"));
+    press(&mut runtime, "hotkey-5-reset");
     assert_eq!(runtime.state.settings.hotkeys.marker, "ctrl+alt+m");
-    assert!(!shows(&runtime, "hotkey-4-reset"));
+    assert!(!shows(&runtime, "hotkey-5-reset"));
     let problem = scene("settings-hotkey-problem");
-    assert_eq!(words(&problem, "hotkey-1-row-hint"), hotkeys::USED_TWICE);
+    assert_eq!(words(&problem, "hotkey-2-row-hint"), hotkeys::USED_TWICE);
     assert_eq!(
-        words(&problem, "hotkey-4-row-hint"),
+        words(&problem, "hotkey-5-row-hint"),
         hotkeys::NEEDS_MODIFIER
     );
-    assert_eq!(words(&problem, "hotkey-4-written"), "m");
+    assert_eq!(words(&problem, "hotkey-5-written"), "m");
 }
 
 #[test]
@@ -705,7 +728,7 @@ fn escape_cancels_the_hotkey_recorder_even_when_it_arrives_as_a_plain_key() {
     runtime.frame(FRAME);
     runtime.settle_all();
     assert!(runtime.state.capture.is_none());
-    assert!(shows(&runtime, "hotkey-4-caps"));
+    assert!(shows(&runtime, "hotkey-5-caps"));
 }
 
 fn caps(accelerator: &str) -> String {
@@ -717,13 +740,13 @@ fn caps(accelerator: &str) -> String {
 #[test]
 fn the_hotkey_recorder_shows_held_modifiers_and_refuses_what_the_system_keeps() {
     let mut runtime = settings(Section::Hotkeys);
-    press(&mut runtime, "hotkey-1");
-    assert!(shows(&runtime, "hotkey-1-waiting"));
+    press(&mut runtime, "hotkey-2");
+    assert!(shows(&runtime, "hotkey-2-waiting"));
     runtime.physical_input(PhysicalInput::Modifiers(ctrl_alt()));
     runtime.frame(FRAME);
     runtime.settle_all();
     assert_eq!(
-        words(&runtime, "hotkey-1-held"),
+        words(&runtime, "hotkey-2-held"),
         rune::modifier_keycaps(ctrl_alt()).join(" ")
     );
     let (reserved, _) = crate::platform::RESERVED_SHORTCUTS[0];
@@ -734,7 +757,7 @@ fn the_hotkey_recorder_shows_held_modifiers_and_refuses_what_the_system_keeps() 
     runtime.update(|app, _| app.propose_hotkey(hotkeys::SAVE_SHORT, &shortcut));
     runtime.frame(FRAME);
     runtime.settle_all();
-    assert!(words(&runtime, "hotkey-1-row-hint").contains("kept by the system for"));
+    assert!(words(&runtime, "hotkey-2-row-hint").contains("kept by the system for"));
     assert_eq!(runtime.state.settings.hotkeys.save_short, before);
 }
 

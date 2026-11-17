@@ -14,6 +14,7 @@ mod editor;
 mod icons;
 mod library;
 pub mod palette;
+pub mod selector;
 mod settings;
 mod widgets;
 

@@ -17,9 +17,11 @@ use crate::hotkeys;
 use crate::library::{self, Library};
 use crate::notification::Notification;
 use crate::platform;
+use crate::selection::Bounds;
 use crate::settings::{Settings, Store};
 use crate::shell::Shell;
 use crate::tray;
+use crate::ui::selector::Answer;
 
 mod actions;
 mod amounts;
@@ -47,6 +49,8 @@ const TOAST_SECONDS: f64 = 3.0;
 const SAVE_DELAY_SECONDS: f64 = 0.5;
 const BYTES_PER_MB: u64 = 1_000_000;
 pub const RENAME_BOX: &str = "rename-box";
+pub const SELECTION_WHILE_RECORDING: &str = "Stop the recording to choose a selection";
+pub const NO_SCREEN_TO_SELECT_ON: &str = "There is no screen to choose a part of";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Screen {
@@ -142,6 +146,9 @@ pub struct Ngine {
     pub sources: Vec<Target>,
     pub target: Option<Target>,
     pub picking: bool,
+    /// The selection overlay is open for choosing a part of a screen.
+    pub selecting: bool,
+    framed: Option<String>,
     pub reading: bool,
     listed: bool,
     after_pick: Option<AfterPick>,
@@ -194,6 +201,8 @@ impl Ngine {
             target: None,
             sources: Vec::new(),
             picking: false,
+            selecting: false,
+            framed: None,
             reading: false,
             listed: false,
             after_pick: None,
@@ -407,6 +416,136 @@ impl Ngine {
     pub fn choose_first(&mut self, kind: TargetKind) {
         if let Some(index) = self.sources.iter().position(|source| source.kind == kind) {
             self.choose(index);
+        }
+    }
+
+    /// The screen a selection is chosen on: the one the current source is
+    /// on, then the one of the last selection, then the first.
+    pub fn selection_screen(&self) -> Option<Target> {
+        let current = self.target.as_ref().and_then(|target| match target.kind {
+            TargetKind::Screen => Some(target.id.clone()),
+            TargetKind::Selection => target.region.as_ref().map(|region| region.screen.clone()),
+            TargetKind::Window | TargetKind::App => None,
+        });
+        let last = self
+            .settings
+            .selection
+            .as_ref()
+            .map(|region| region.screen.clone());
+        let mut screens = self
+            .sources
+            .iter()
+            .filter(|source| source.kind == TargetKind::Screen && source.display.is_some());
+        let wanted = current.or(last);
+        wanted
+            .and_then(|id| screens.clone().find(|screen| screen.id == id))
+            .or_else(|| screens.next())
+            .cloned()
+    }
+
+    /// Opens the overlay that chooses a part of a screen to record, offering
+    /// the last part chosen on that screen.
+    pub fn open_selector(&mut self) -> Result<String, String> {
+        self.popup = None;
+        if self.status.recording.is_some() {
+            return Err(SELECTION_WHILE_RECORDING.into());
+        }
+        let Some(screen) = self.selection_screen() else {
+            return Err(NO_SCREEN_TO_SELECT_ON.into());
+        };
+        let bounds = screen.display.map_or(Bounds::of(0, 0), |display| {
+            Bounds::of(display.width, display.height)
+        });
+        let area = self
+            .settings
+            .selection
+            .as_ref()
+            .filter(|region| region.screen == screen.id)
+            .and_then(|region| region.area.on(bounds));
+        self.selecting = true;
+        if let Some(shell) = &self.shell {
+            shell.choose_selection(&screen, area);
+        }
+        Ok(crate::ui::selector::DRAG_HINT.into())
+    }
+
+    /// Takes what the selection overlay answered: records the chosen part,
+    /// or closes the overlay.
+    pub fn selection_answered(&mut self, answer: Answer) {
+        self.selecting = false;
+        let Answer::Record(region) = answer else {
+            self.hide_selector();
+            return;
+        };
+        let Some(screen) = self
+            .sources
+            .iter()
+            .find(|source| source.id == region.screen)
+            .cloned()
+        else {
+            self.hide_selector();
+            self.tell(NO_SCREEN_TO_SELECT_ON.into(), true);
+            return;
+        };
+        let area = region.area;
+        self.edit(|settings| settings.selection = Some(region.clone()));
+        let target = Target::selection(&screen, region);
+        self.target = Some(target.clone());
+        let started = self.start_recording();
+        if started.is_ok() {
+            self.framed = Some(target.id);
+            if let Some(shell) = &self.shell {
+                shell.frame_selection(&screen, area);
+            }
+        } else {
+            self.hide_selector();
+        }
+        self.note(&started);
+    }
+
+    fn hide_selector(&mut self) {
+        self.framed = None;
+        if let Some(shell) = &self.shell {
+            shell.hide_selector();
+        }
+    }
+
+    /// Keeps the frame around a selection on screen while it records or
+    /// fills the replay buffer, and takes it away after.
+    fn follow_selection(&mut self) {
+        if self.selecting {
+            return;
+        }
+        let live = [
+            self.status
+                .recording
+                .as_ref()
+                .map(|recording| &recording.target),
+            self.status.replay.as_ref().map(|replay| &replay.target),
+        ]
+        .into_iter()
+        .flatten()
+        .find(|target| target.kind == TargetKind::Selection)
+        .cloned();
+        if live.as_ref().map(|target| &target.id) == self.framed.as_ref() {
+            return;
+        }
+        let placed = live.as_ref().and_then(|target| {
+            let region = target.region.as_ref()?;
+            let screen = self
+                .sources
+                .iter()
+                .find(|source| source.id == region.screen)?;
+            Some((screen.clone(), region.area))
+        });
+        match placed {
+            Some((screen, area)) => {
+                self.framed = live.map(|target| target.id);
+                if let Some(shell) = &self.shell {
+                    shell.frame_selection(&screen, area);
+                }
+            }
+            None => self.hide_selector(),
         }
     }
 
@@ -670,6 +809,7 @@ impl Ngine {
         self.status = status;
         changed |= self.meters.follow(self.status.levels, self.clock);
         self.show_tray();
+        self.follow_selection();
         changed
     }
 

@@ -22,6 +22,7 @@ mod library;
 )]
 mod notification;
 mod platform;
+mod selection;
 mod settings;
 mod shell;
 mod speaker;

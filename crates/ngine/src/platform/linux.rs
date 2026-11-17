@@ -47,6 +47,13 @@ fn program_to_start(running: &Path, appimage: Option<OsString>) -> PathBuf {
 
 /// The window draws its own titlebar: on Windows the caption buttons sit
 /// over ngine's own top strip; elsewhere the system's frame stays.
+/// Where an overlay for the display with the capture id `id` goes. X11
+/// capture numbers a monitor by its name, which no overlay target takes, so
+/// the overlay opens where the pointer is.
+pub fn overlay_display(_id: u64) -> rune::DisplayTarget {
+    rune::DisplayTarget::UnderPointer
+}
+
 pub fn window_frame<S>(app: rune::App<S>) -> rune::App<S> {
     app.titlebar(crate::ui::titlebar())
 }

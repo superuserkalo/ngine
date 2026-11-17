@@ -20,10 +20,11 @@ pub enum Action {
     SaveEverything,
     ShowWindow,
     Quit,
+    RecordSelection,
 }
 
 impl Action {
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 9] = [
         Self::ToggleRecording,
         Self::AddMarker,
         Self::ToggleReplay,
@@ -32,6 +33,7 @@ impl Action {
         Self::SaveEverything,
         Self::ShowWindow,
         Self::Quit,
+        Self::RecordSelection,
     ];
 
     pub fn number(self) -> usize {
@@ -167,8 +169,13 @@ impl Ngine {
 
     fn run(&mut self, action: Action) -> Reply {
         let reply = match action {
-            Action::ToggleRecording if self.status.recording.is_some() => self.stop_recording(),
+            Action::ToggleRecording | Action::RecordSelection
+                if self.status.recording.is_some() =>
+            {
+                self.stop_recording()
+            }
             Action::ToggleRecording => self.start_recording(),
+            Action::RecordSelection => self.open_selector(),
             Action::AddMarker => self.add_marker(),
             Action::ToggleReplay => self.set_replay(self.status.replay.is_none()),
             Action::SaveShort => self.save_replay(Self::short_save()),
@@ -207,7 +214,9 @@ impl Ngine {
 
     pub fn perform(&mut self, action: Action) {
         let reply = self.run(action);
-        if !matches!(action, Action::ShowWindow | Action::Quit) {
+        let quiet = matches!(action, Action::ShowWindow | Action::Quit)
+            || (action == Action::RecordSelection && reply.is_ok() && self.selecting);
+        if !quiet {
             self.note(&reply);
         }
     }

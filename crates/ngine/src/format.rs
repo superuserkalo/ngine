@@ -20,6 +20,11 @@ pub fn length(length: Duration) -> String {
     }
 }
 
+/// A picture's width and height in pixels, as a screen's size reads.
+pub fn dimensions(width: u32, height: u32) -> String {
+    format!("{width} × {height}")
+}
+
 pub fn timer(elapsed: Duration) -> String {
     let seconds = elapsed.as_secs();
     let (hours, minutes, seconds) = (seconds / 3600, seconds / 60 % 60, seconds % 60);

@@ -42,6 +42,7 @@ fn kind_icon(kind: TargetKind) -> &'static Icon {
         TargetKind::Screen => &icons::MONITOR,
         TargetKind::Window => &icons::APP_WINDOW,
         TargetKind::App => &icons::LAYOUT_GRID,
+        TargetKind::Selection => &icons::SQUARE_DASHED,
     }
 }
 
@@ -50,6 +51,7 @@ fn kind_word(kind: TargetKind) -> &'static str {
         TargetKind::Screen => "Screen",
         TargetKind::Window => "Window",
         TargetKind::App => "App",
+        TargetKind::Selection => "Selection",
     }
 }
 
@@ -107,6 +109,7 @@ fn windows_words(count: usize) -> String {
 fn target_detail(app: &Ngine, target: &Target) -> String {
     match target.kind {
         TargetKind::App => format!("App · all {}", windows_words(window_count(app, target))),
+        TargetKind::Selection => target.detail.clone(),
         TargetKind::Window | TargetKind::Screen
             if target.detail.is_empty() || target.detail == target.name =>
         {
@@ -300,8 +303,35 @@ fn screen_items(p: &Paint, app: &Ngine) -> Vec<El> {
                     .build(&p, "menuitemradio", move |app, _| app.choose_source(&id)),
             );
         }
+        items.push(selection_item(&p, app));
     }
     items
+}
+
+/// The entry that opens the overlay where a part of a screen is chosen. It
+/// says the size of the part chosen last, which the overlay offers again.
+fn selection_item(p: &Paint, app: &Ngine) -> El {
+    let chosen = app
+        .target
+        .as_ref()
+        .is_some_and(|target| target.kind == TargetKind::Selection);
+    let last = app
+        .settings
+        .selection
+        .as_ref()
+        .map(|region| format::dimensions(region.area.width, region.area.height));
+    let mut item = MenuItem::new("source-selection", "Selection…")
+        .icon(kind_icon(TargetKind::Selection))
+        .chosen(chosen);
+    if let Some(last) = last {
+        item = item.detail(last);
+    }
+    item.build(p, "menuitemradio", |app, _| {
+        let opened = app.open_selector();
+        if opened.is_err() {
+            app.note(&opened);
+        }
+    })
 }
 
 fn app_items(p: &Paint, app: &Ngine) -> Vec<El> {

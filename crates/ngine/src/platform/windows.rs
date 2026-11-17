@@ -39,6 +39,14 @@ const STARTUP_FILE: &str = "Microsoft\\Windows\\Start Menu\\Programs\\Startup\\n
 
 /// The window draws its own titlebar: on Windows the caption buttons sit
 /// over ngine's own top strip; elsewhere the system's frame stays.
+/// Where an overlay for the display with the capture id `id` goes: capture
+/// numbers a display by its `HMONITOR`, as winit does.
+pub fn overlay_display(id: u64) -> rune::DisplayTarget {
+    isize::try_from(id).map_or(rune::DisplayTarget::UnderPointer, |id| {
+        rune::DisplayTarget::Native(rune::NativeDisplayId::Windows(id))
+    })
+}
+
 pub fn window_frame<S>(app: rune::App<S>) -> rune::App<S> {
     app.titlebar(crate::ui::titlebar())
 }

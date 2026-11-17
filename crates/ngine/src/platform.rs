@@ -51,11 +51,11 @@ pub fn print_to_the_terminal_that_started_ngine() {
     let _started_without_a_terminal = !console::attach_to_the_parent();
 }
 
-pub use os::window_frame;
 pub use os::{
     ERASE_KEY, FILE_MANAGER, LISTS_CAPTURE_TARGETS, RESERVED_SHORTCUTS, SAMPLE_BUFFER_FOLDER,
     SAMPLE_OUTPUT_FOLDER, SYSTEM_SETTINGS, TRASH, VIDEOS_FOLDER,
 };
+pub use os::{overlay_display, window_frame};
 
 use crate::engine::Permission;
 

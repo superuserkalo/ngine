@@ -11,12 +11,13 @@ Climb from the window as it is. Its structure is the owner's accepted starting p
 
 ## The loop
 
-1. **Render.** Run every snapshot scene (`cargo run -p ngine -- --snap`, see `src/app/demo.rs`) at 1280×800, 960×1080, 960×540 and 720×480 into `.scratch/hillclimb/round-N/`. Also render the real library and editor with `--library-of` and `--editor-on` on a real recording.
+1. **Render.** Build once, copy `target/debug/ngine` to `.scratch/hillclimb/round-N/ngine` and render from that copy, so another build cannot change the binary halfway through a round. Run every snapshot scene (`--snap`, see `src/app/demo.rs`) at 1280×800, 960×1080, 960×540 and 720×480 into `.scratch/hillclimb/round-N/`. Also render the library and editor with `--library-of` and `--editor-on` on a synthetic test recording.
 2. **Judge with fresh eyes.** Headless renders draw no traffic lights; tell the reviewer they sit at the top-left of the sidebar, centred 16 pt down. Spawn a reviewer subagent that has NOT seen the code or your reasoning. Give it only this rubric and the round's PNG paths, and ask for every defect with the scene, the exact place, and how bad it is (blocker, clear flaw, nit). Look at every PNG yourself too.
 3. **Fix the worst first.** Blockers, then clear flaws. Nits only when nothing worse is left.
 4. **Repeat** until a round finds no blocker and no clear flaw, or three rounds have run without progress. Keep each round's pictures so the owner can see the climb.
 5. **Drive the real app** on this Mac for what pictures cannot show: hover, cursor, focus, keyboard, menus, timing. If macOS refuses scripted clicks, use the app's own test runtime to click every control and assert something opens, and say plainly that a person still has to try it.
-6. **Learn from misses.** When the owner finds a problem the rubric did not catch, add the rule that would have caught it to the rubric below, in the same commit as the fix.
+6. **Never capture the owner's screen.** Pictures of the real app are window-only captures of ngine's own window (`screencapture -l <window id>`), kept under `.scratch/` and deleted when the round ends. No full-screen capture, no other app's window, and real recordings only of a region inside ngine's window, deleted after they are measured.
+7. **Learn from misses.** When the owner finds a problem the rubric did not catch, add the rule that would have caught it to the rubric below, in the same commit as the fix.
 
 ## Rubric
 

@@ -900,3 +900,24 @@ fn a_short_window_keeps_captures_left_edges_in_line() {
     let replay = element(&runtime, "replay-name").rect[0];
     assert!((timer - replay).abs() < 0.5, "{timer} {replay}");
 }
+
+#[test]
+fn show_all_ends_at_the_recent_rows_right_edge() {
+    let runtime = scene("idle-with-recent");
+    let link = element(&runtime, "recent-all").rect;
+    let row = element(&runtime, "recent-head").rect;
+    assert!((link[0] + link[2] - row[0] - row[2]).abs() < 0.5);
+    let label = element(&runtime, "recent-all").rect;
+    assert!(label[2] < 80.0, "{}", label[2]);
+}
+
+#[test]
+fn a_cards_menu_opens_below_its_words_and_the_total_lines_up_with_them() {
+    let runtime = scene("library-menu");
+    let details = element(&runtime, "item-1-details").rect;
+    let menu = element(&runtime, "item-menu").rect;
+    assert!(menu[1] >= details[1] + details[3], "{menu:?} {details:?}");
+    let title = element(&runtime, "item-0-details").rect[0];
+    let total = element(&runtime, "library-total").rect;
+    assert!((total[0] + 6.0 - title).abs() < 0.5, "{total:?} {title}");
+}

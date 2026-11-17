@@ -631,12 +631,13 @@ fn audio(ui: &mut Ui<'_>) -> El {
     } else {
         METER_WIDTH
     };
+    let live = ui.app.status.levels.is_some();
+    let meter_room = if live { meter_width + space::S3 } else { 0.0 };
     let beside = 2.0 * space::S3
         + 2.0
         + 16.0
         + AUDIO_LABEL
-        + meter_width
-        + space::S3
+        + meter_room
         + 36.0
         + 4.0 * space::S3
         + if narrow {
@@ -650,7 +651,6 @@ fn audio(ui: &mut Ui<'_>) -> El {
     let p = ui.p;
     let app = ui.app;
     let audio = app.settings.audio;
-    let live = app.status.levels.is_some();
     let meters = app.meters;
     let rows = vec![
         audio_row(
@@ -1026,7 +1026,8 @@ fn recent(ui: &Ui<'_>) -> Option<El> {
                     .child(
                         Button::new("recent-all", "Show all")
                             .look(Look::Quiet)
-                            .build(&p, |app| app.show(Screen::Library)),
+                            .build(&p, |app| app.show(Screen::Library))
+                            .px(0.0),
                     ),
             )
             .child(strip),

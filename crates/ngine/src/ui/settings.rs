@@ -877,7 +877,7 @@ pub fn sheet(ui: &mut Ui<'_>) {
     } else {
         LIST_WIDTH
     };
-    let mut content = col()
+    let content = col()
         .key(format!("settings-{}", section_id(section)))
         .w_full()
         .px(space::S6)
@@ -885,19 +885,29 @@ pub fn sheet(ui: &mut Ui<'_>) {
         .pb(space::S6)
         .gap(space::S6)
         .children(rows);
+    let mut body = col()
+        .key("settings-body")
+        .grow(1.0)
+        .min_w(0.0)
+        .h_full()
+        .child(super::page("settings", content));
     if section != Section::About {
-        content = content.child(
-            row().key("section-foot").child(
-                Button::new("section-reset", "Reset to defaults")
-                    .help(format!(
-                        "Put the {} settings back to what a fresh install has",
-                        section_label(section).to_lowercase()
-                    ))
-                    .build(&p, move |app| app.open_popup(Popup::ConfirmReset(section))),
-            ),
+        body = body.child(
+            row()
+                .key("section-foot")
+                .px(space::S6)
+                .py(space::S3)
+                .border_sides([p.hair, 0.0, 0.0, 0.0], p.t.separator)
+                .child(
+                    Button::new("section-reset", "Reset to defaults")
+                        .help(format!(
+                            "Put the {} settings back to what a fresh install has",
+                            section_label(section).to_lowercase()
+                        ))
+                        .build(&p, move |app| app.open_popup(Popup::ConfirmReset(section))),
+                ),
         );
     }
-    let body = super::page("settings", content).grow(1.0).min_w(0.0);
     let panel = row()
         .key("settings")
         .role("dialog")

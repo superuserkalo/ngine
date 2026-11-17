@@ -47,6 +47,6 @@ Climb from the window as it is. Its structure is the owner's accepted starting p
 
 **Live state.** Recording and replay state is shown where it matters, small and calm, and only when something is live. Meters move when there is sound.
 
-**States.** Hover, pressed, focus and disabled are visible and consistent. Disabled controls say why when hovered. The primary action is disabled, with the reason, until what it acts on is chosen. A selection mark draws outside a picture, never under it. Empty, loading and error states look designed, not forgotten.
+**States.** Hover, pressed, focus and disabled are visible and consistent. Disabled controls say why when hovered. The primary action is disabled, with the reason, until what it acts on is chosen. A selection mark draws outside a picture, never under it. Empty, loading and error states look designed, not forgotten, and an error offers an action that can fix it, not only a retry that will fail again. A page's own actions (Reset to defaults) stay in view instead of scrolling below a fold.
 
 **Tells of AI design to remove.** Status pills nobody asked for, emoji, gradients on everything, every element in its own rounded card, icons on every label, centred everything, redundant section titles, helper text under every row, three equal buttons where one matters.

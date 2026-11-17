@@ -11,7 +11,7 @@ use super::widgets::{
     empty_state, field, float, keycaps, lone_switch, section, segmented, slider, surface,
 };
 use super::{FirstRow, Ui, icons, page, sheet};
-use crate::app::{Ngine, Popup, Screen, toggle_watching};
+use crate::app::{Folder, Ngine, Popup, Screen, toggle_watching};
 use crate::editor::{Editor, Exporting, FULL_VOLUME, Grip, LOUDEST_PERCENT, PERCENT_STEP, Source};
 use crate::format;
 use crate::platform;
@@ -438,7 +438,6 @@ fn export_button(p: &Paint, label: &str) -> El {
     Button::new("export", label)
         .look(Look::Primary)
         .build(p, Ngine::export_clip)
-        .w_full()
 }
 
 fn exported(p: &Paint, body: El, file: &Path, length: Duration) -> El {
@@ -546,7 +545,18 @@ fn export(p: &Paint, app: &Ngine, editor: &Editor, width: f32) -> El {
                 .color(p.danger)
                 .wrap(),
             )
-            .child(export_button(p, "Try again")),
+            .child(
+                row()
+                    .key("export-failed-actions")
+                    .gap(space::S2)
+                    .flex_wrap()
+                    .child(export_button(p, "Try again").grow(1.0))
+                    .child(
+                        Button::new("export-folder", "Change folder…")
+                            .build_tx(p, super::choose_folder(Folder::Output))
+                            .grow(1.0),
+                    ),
+            ),
     };
     let mut group = col()
         .key("export-section")

@@ -369,6 +369,7 @@ fn an_export_shows_its_progress_its_file_or_its_failure() {
         "The clip could not be exported. The disk is full."
     );
     assert_eq!(words(&failed, "export"), "Try again");
+    assert_eq!(words(&failed, "export-folder"), "Change folder…");
     press(&mut failed, "editor-back");
     assert!(shows(&failed, "library"));
     assert!(matches!(

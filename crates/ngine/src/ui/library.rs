@@ -366,7 +366,7 @@ fn item_menu(ui: &mut Ui<'_>) {
     if let Some(at) = at {
         float_at(&mut ui.layer, "item-menu", *at, ui.window, surface);
     } else {
-        let anchor = format!("item-{index}-more");
+        let anchor = format!("item-{index}-words");
         let floating = Floating {
             key: "item-menu",
             anchor: &anchor,
@@ -527,6 +527,7 @@ pub fn view(ui: &mut Ui<'_>) -> El {
             content.child(grid(ui, &shown)).child(
                 text(total(app, &shown))
                     .key("library-total")
+                    .pl(space::S1 + 2.0)
                     .font(CAPTION)
                     .color(p.faint),
             )

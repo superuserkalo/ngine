@@ -921,3 +921,14 @@ fn a_cards_menu_opens_below_its_words_and_the_total_lines_up_with_them() {
     let total = element(&runtime, "library-total").rect;
     assert!((total[0] + 6.0 - title).abs() < 0.5, "{total:?} {title}");
 }
+
+#[test]
+fn the_sound_menus_keep_their_width_when_the_meters_appear() {
+    let mut runtime = Runtime::new(demo::idle(), view, (720.0, 480.0), Env::new(true, 2.0));
+    runtime.frame(0.0);
+    let idle = element(&runtime, "capture-system-sound").rect[2];
+    press(&mut runtime, "replay-toggle");
+    pass(&mut runtime, Duration::from_secs(2));
+    let live = element(&runtime, "capture-system-sound").rect[2];
+    assert!((idle - live).abs() < 0.5, "{idle} {live}");
+}

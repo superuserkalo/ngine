@@ -631,13 +631,12 @@ fn audio(ui: &mut Ui<'_>) -> El {
     } else {
         METER_WIDTH
     };
-    let live = ui.app.status.levels.is_some();
-    let meter_room = if live { meter_width + space::S3 } else { 0.0 };
     let beside = 2.0 * space::S3
         + 2.0
         + 16.0
         + AUDIO_LABEL
-        + meter_room
+        + meter_width
+        + space::S3
         + 36.0
         + 4.0 * space::S3
         + if narrow {
@@ -651,6 +650,7 @@ fn audio(ui: &mut Ui<'_>) -> El {
     let p = ui.p;
     let app = ui.app;
     let audio = app.settings.audio;
+    let live = app.status.levels.is_some();
     let meters = app.meters;
     let rows = vec![
         audio_row(

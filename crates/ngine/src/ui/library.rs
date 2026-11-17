@@ -334,7 +334,7 @@ fn item_menu(ui: &mut Ui<'_>) {
     let items = vec![
         MenuItem::new("menu-open", "Open")
             .icon(&icons::PLAY)
-            .detail("Enter")
+            .detail(platform::OPEN_KEY)
             .blocked((!readable).then(|| UNREADABLE.to_owned()))
             .build(&p, "menuitem", move |app, _| {
                 app.close_popup();
@@ -356,7 +356,7 @@ fn item_menu(ui: &mut Ui<'_>) {
         menu_rule(&p, "menu-rule"),
         MenuItem::new("menu-trash", &format!("Move to {}", platform::TRASH))
             .icon(&icons::TRASH_2)
-            .detail("Delete")
+            .detail(platform::TRASH_KEY)
             .danger()
             .build(&p, "menuitem", move |app, _| {
                 app.ask_to_trash(vec![trashed.clone()]);

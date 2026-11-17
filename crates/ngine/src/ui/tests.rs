@@ -296,6 +296,12 @@ fn where_sources_cannot_be_listed_the_system_picker_chooses() {
         help(&runtime, "record-toggle"),
         super::capture::CHOOSE_FIRST
     );
+    assert_eq!(
+        help(&runtime, "replay-toggle"),
+        super::capture::CHOOSE_FIRST
+    );
+    press(&mut runtime, "replay-toggle");
+    assert!(!runtime.state.picking);
     press(&mut runtime, "source");
     assert!(!shows(&runtime, "sources"));
     assert_eq!(
@@ -318,7 +324,7 @@ fn problems_show_one_banner_at_a_time_with_the_count_of_the_rest() {
     );
     assert!(
         words(&runtime, "problem-capture-restarted-detail")
-            .ends_with("1 more problem is waiting behind it.")
+            .ends_with("1 more problem after this one.")
     );
     assert!(!shows(&runtime, "problem-permission-microphone"));
     press(&mut runtime, "problem-capture-restarted-dismiss");
@@ -556,7 +562,7 @@ fn a_hotkey_can_be_cleared_and_then_says_it_is_not_set() {
         words(&problem, "hotkey-5-row-hint"),
         hotkeys::NEEDS_MODIFIER
     );
-    assert_eq!(words(&problem, "hotkey-5-written"), "m");
+    assert_eq!(words(&problem, "hotkey-5-written"), "M");
 }
 
 #[test]
@@ -884,4 +890,13 @@ fn the_settings_sheet_keeps_its_height_in_a_tall_narrow_window() {
     runtime.frame(0.0);
     let [_, _, _, height] = element(&runtime, "settings").rect;
     assert!(height <= 640.0, "{height}");
+}
+
+#[test]
+fn a_short_window_keeps_captures_left_edges_in_line() {
+    let mut runtime = Runtime::new(demo::idle(), view, (720.0, 480.0), Env::new(true, 2.0));
+    runtime.frame(0.0);
+    let timer = element(&runtime, "elapsed").rect[0];
+    let replay = element(&runtime, "replay-name").rect[0];
+    assert!((timer - replay).abs() < 0.5, "{timer} {replay}");
 }

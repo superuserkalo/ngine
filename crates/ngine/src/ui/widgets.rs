@@ -290,6 +290,16 @@ pub fn switch(p: &Paint, key: &str, on: bool) -> El {
 }
 
 /// A switch that stands alone, with its label read by assistive technology.
+pub fn blocked(control: El, why: &str) -> El {
+    control
+        .disabled(true)
+        .focusable(false)
+        .opacity(DISABLED)
+        .description(why)
+        .help(why)
+        .cursor(Cursor::Default)
+}
+
 pub fn lone_switch(
     p: &Paint,
     key: &str,

@@ -13,6 +13,8 @@ pub const TRASH: &str = "Recycle Bin";
 pub const SYSTEM_SETTINGS: &str = "Settings";
 pub const LISTS_CAPTURE_TARGETS: bool = true;
 pub const NEEDS_MODIFIER: &str = "Hold Ctrl, Alt or Win with it";
+pub const OPEN_KEY: &str = "Enter";
+pub const TRASH_KEY: &str = "Delete";
 pub const ERASE_KEY: &str = "Backspace";
 
 /// Keys Windows keeps for itself or that every Windows app answers, with

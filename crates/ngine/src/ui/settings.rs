@@ -529,6 +529,15 @@ fn replay(ui: &mut Ui<'_>) -> Vec<El> {
     ]
 }
 
+fn written_alone(accelerator: &str) -> String {
+    let written = accelerator.trim();
+    if written.chars().count() == 1 {
+        written.to_uppercase()
+    } else {
+        written.to_owned()
+    }
+}
+
 fn hotkey_face(p: &Paint, app: &Ngine, slot: usize, key: &str) -> El {
     if let Some(capture) = app.capture.as_ref().filter(|capture| capture.slot == slot) {
         let held = rune::modifier_keycaps(capture.held);
@@ -544,7 +553,7 @@ fn hotkey_face(p: &Paint, app: &Ngine, slot: usize, key: &str) -> El {
     let accelerator = app.settings.hotkeys.all()[slot];
     match hotkeys::keycaps(accelerator) {
         Some(caps) => keycaps(p, &format!("{key}-caps"), &caps).a11y_hidden(),
-        None if !hotkeys::is_unset(accelerator) => text(accelerator.trim().to_owned())
+        None if !hotkeys::is_unset(accelerator) => text(written_alone(accelerator))
             .key(format!("{key}-written"))
             .font(type_::LABEL)
             .color(p.danger)
@@ -695,7 +704,7 @@ fn folder_row(p: &Paint, key: &str, label: &str, folder: Folder, path: &std::pat
                 .key(format!("{key}-value"))
                 .font(type_::LABEL)
                 .color(p.t.text)
-                .truncate()
+                .truncate_middle()
                 .min_w(0.0)
                 .a11y_hidden(),
         );
@@ -912,7 +921,7 @@ pub fn sheet(ui: &mut Ui<'_>) {
             .h_full()
             .center()
             .pt(top - SHEET_MARGIN / 2.0)
-            .fill(Color::BLACK.alpha(0.45))
+            .fill(Color::BLACK.alpha(0.6))
             .on_press(close)
             .child(panel),
     );

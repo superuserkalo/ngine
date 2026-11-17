@@ -7,7 +7,7 @@ use rune::{
 
 use super::widgets::{
     Button, CAPTION, Floating, ICON, LIST_FADE, Look, MenuItem, Option_, Paint, STRONG, Select,
-    Stops, TIMER, caption, card, float, lone_switch, menu, menu_heading, menu_rule, meter,
+    Stops, TIMER, blocked, caption, card, float, lone_switch, menu, menu_heading, menu_rule, meter,
     section_title, select, slider,
 };
 use super::{Ui, hotkey_caps, icons, page, sheet};
@@ -77,7 +77,7 @@ fn source_words(app: &Ngine) -> (&'static Icon, String, String) {
         (_, true) => (
             &icons::MOUSE_POINTER_CLICK,
             "Waiting for the system picker…".into(),
-            "Choose a screen or a window in the system's picker".into(),
+            String::new(),
         ),
         (Some(target), false) => (
             kind_icon(target.kind),
@@ -768,7 +768,8 @@ fn record(ui: &Ui<'_>) -> El {
     }
     let body = row()
         .key("record-body")
-        .padding(if ui.window.1 < SHORT_WINDOW {
+        .px(space::S3 + space::S1)
+        .py(if ui.window.1 < SHORT_WINDOW {
             space::S2
         } else {
             space::S3 + space::S1
@@ -926,13 +927,18 @@ fn replay(ui: &mut Ui<'_>) -> El {
                 .child(caption(&p, "replay-state", replay_words(app))),
         )
         .child(length)
-        .child(lone_switch(
-            &p,
-            "replay-toggle",
-            "Instant replay",
-            on,
-            |app| app.perform(Action::ToggleReplay),
-        ));
+        .child({
+            if on || app.target.is_some() {
+                lone_switch(&p, "replay-toggle", "Instant replay", on, |app| {
+                    app.perform(Action::ToggleReplay);
+                })
+            } else {
+                blocked(
+                    lone_switch(&p, "replay-toggle", "Instant replay", on, |_| {}),
+                    CHOOSE_FIRST,
+                )
+            }
+        });
     let body = col()
         .key("replay-body")
         .padding(space::S3 + space::S1)

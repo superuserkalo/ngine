@@ -555,8 +555,8 @@ fn banners(p: &Paint, app: &Ngine, width: f32) -> Option<El> {
         let more = app.problems.len() - 1 + usize::from(app.settings_were_reset);
         if more > 0 {
             one.detail = match more {
-                1 => format!("{} 1 more problem is waiting behind it.", one.detail),
-                many => format!("{} {many} more problems are waiting behind it.", one.detail),
+                1 => format!("{} 1 more problem after this one.", one.detail),
+                many => format!("{} {many} more problems after this one.", one.detail),
             };
         }
         banner(p, one, |app| app.dismiss_problem(0))

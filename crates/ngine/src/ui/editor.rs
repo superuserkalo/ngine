@@ -31,7 +31,7 @@ const PLAYHEAD: (f32, f32) = (2.0, 36.0);
 const MARKER: (f32, f32) = (2.0, 10.0);
 const GRAB: f32 = 10.0;
 const PROGRESS_HEIGHT: f32 = 6.0;
-const CUT_INSET: f32 = space::S3 + 2.0;
+const CUT_INSET: f32 = 0.0;
 const WIDEST_SEGMENT: f32 = 120.0;
 const PREVIEW_VOLUME_WIDTH: f32 = 72.0;
 const LEVEL_WIDTH: f32 = 140.0;
@@ -336,7 +336,6 @@ fn source_row(p: &Paint, editor: &Editor, source: Source) -> El {
     .opacity(if level.on { 1.0 } else { 0.4 });
     col()
         .key(key)
-        .px(space::S3 + 2.0)
         .py(space::S2)
         .gap(space::S2)
         .child(
@@ -493,7 +492,6 @@ fn export(p: &Paint, app: &Ngine, editor: &Editor, width: f32) -> El {
     );
     let mut body = col()
         .key("export-body")
-        .px(space::S3 + 2.0)
         .pt(space::S2)
         .pb(space::S3)
         .gap(space::S2)
@@ -561,11 +559,7 @@ fn export(p: &Paint, app: &Ngine, editor: &Editor, width: f32) -> El {
     let mut group = col()
         .key("export-section")
         .w(width)
-        .padding(space::S1)
-        .fill(p.t.card)
-        .radius(radius::LG)
-        .border(p.hair, p.t.card_border)
-        .child(cut_at(p, editor, width - 2.0 * space::S1));
+        .child(cut_at(p, editor, width));
     group = group.child(body);
     group
 }

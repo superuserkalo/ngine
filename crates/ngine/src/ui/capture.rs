@@ -564,8 +564,8 @@ fn audio_row(p: &Paint, narrow: bool, meter_width: f32, audio: AudioRow) -> El {
     let mut line = row()
         .key(key)
         .min_h(48.0)
-        .pl(space::S3 + space::S1)
-        .pr(space::S3 + space::S1)
+        .pl(0.0)
+        .pr(0.0)
         .gap(space::S3)
         .center_y()
         .child(
@@ -768,7 +768,7 @@ fn record(ui: &Ui<'_>) -> El {
     }
     let body = row()
         .key("record-body")
-        .px(space::S3 + space::S1)
+        .px(0.0)
         .py(if ui.window.1 < SHORT_WINDOW {
             space::S2
         } else {
@@ -941,7 +941,7 @@ fn replay(ui: &mut Ui<'_>) -> El {
         });
     let body = col()
         .key("replay-body")
-        .padding(space::S3 + space::S1)
+        .py(space::S3 + space::S1)
         .gap(space::S3)
         .child(head)
         .child(save_buttons(&p, app));

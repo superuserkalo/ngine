@@ -770,7 +770,6 @@ fn labelled(p: &Paint, key: &str, label: &str, hint: Option<El>, control: El) ->
     row()
         .key(key)
         .min_h(ROW_HEIGHT)
-        .px(space::S3 + 2.0)
         .py(space::S2)
         .gap(space::S3)
         .center_y()

@@ -37,9 +37,9 @@ pub fn label(slot: usize, settings: &Settings) -> String {
     match slot {
         RECORD => "Start or stop recording".into(),
         SELECTION => "Record a selection".into(),
-        SAVE_SHORT => format!("Save the last {}", seconds(SHORT_SAVE_SECONDS)),
-        SAVE_CUSTOM => format!("Save the last {}", seconds(settings.replay.save_seconds)),
-        SAVE_EVERYTHING => "Save the whole replay".into(),
+        SAVE_SHORT => format!("Save last {}", seconds(SHORT_SAVE_SECONDS)),
+        SAVE_CUSTOM => format!("Save last {}", seconds(settings.replay.save_seconds)),
+        SAVE_EVERYTHING => "Save whole replay".into(),
         _ => "Add a marker".into(),
     }
 }

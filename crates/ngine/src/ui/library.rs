@@ -1,4 +1,4 @@
-use rune::tok::{radius, space, type_};
+use rune::tok::{radius, space};
 use rune::{Align, Color, Cursor, El, Side, SurfaceFit, col, el, row, spacer, text, text_input};
 
 use super::widgets::{
@@ -121,7 +121,7 @@ fn selection_bar(p: &Paint, app: &Ngine) -> Option<El> {
             .child(
                 text(format!("{count} selected"))
                     .key("selection-count")
-                    .font(type_::LABEL)
+                    .font(super::widgets::LABEL)
                     .color(p.t.text),
             )
             .child(spacer())
@@ -157,7 +157,7 @@ fn name_line(p: &Paint, app: &Ngine, key: &str, entry: &Entry) -> El {
             .child(
                 text(entry.item.name.clone())
                     .key(format!("{key}-name"))
-                    .font(type_::LABEL)
+                    .font(super::widgets::LABEL)
                     .color(p.t.text)
                     .truncate()
                     .min_w(0.0)
@@ -173,7 +173,7 @@ fn name_line(p: &Paint, app: &Ngine, key: &str, entry: &Entry) -> El {
         .border(1.0, p.accent)
         .center_y()
         .child(
-            text_input(&app.rename, type_::LABEL)
+            text_input(&app.rename, super::widgets::LABEL)
                 .key("rename")
                 .label("New name")
                 .single_line()

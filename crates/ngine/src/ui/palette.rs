@@ -48,7 +48,7 @@ impl Palette {
             text_secondary: self.muted,
             separator: self.border,
             control_track: self.text.alpha(0.05),
-            control_off: self.text.alpha(0.085),
+            control_off: self.text.alpha(0.2),
             indicator: self.raised,
             hover: self.text.alpha(0.03),
             press: self.text.alpha(0.05),

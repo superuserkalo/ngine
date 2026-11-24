@@ -98,7 +98,7 @@ impl Model {
                     format!("Save last {}", seconds(settings.replay.save_seconds)),
                     replay,
                 ),
-                item(Action::SaveEverything, "Save everything", replay),
+                item(Action::SaveEverything, "Save whole replay", replay),
                 Entry::Separator,
                 item(Action::ShowWindow, "Open ngine", true),
                 item(Action::Quit, "Quit ngine", true),

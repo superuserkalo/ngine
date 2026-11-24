@@ -8,12 +8,13 @@ use super::icons;
 use super::palette::Palette;
 use crate::app::{Amount, Ngine, Popup};
 
-pub const HEADING: TextStyle = TextStyle::new(14.0, 600.0);
-pub const TIMER: TextStyle = TextStyle::new(22.0, 500.0).features("tnum");
+pub const HEADING: TextStyle = TextStyle::new(13.0, 600.0);
+pub const TIMER: TextStyle = TextStyle::new(20.0, 500.0).features("tnum");
 pub const CAPTION: TextStyle = TextStyle::new(11.5, 400.0);
 pub const STRONG: TextStyle = TextStyle::new(13.0, 600.0);
-pub const KEYCAP: TextStyle = TextStyle::new(11.0, 500.0);
-pub const NUMBERS: TextStyle = TextStyle::new(12.0, 500.0).features("tnum");
+pub const KEYCAP: TextStyle = TextStyle::new(11.5, 500.0);
+pub const LABEL: TextStyle = TextStyle::new(11.5, 500.0);
+pub const NUMBERS: TextStyle = TextStyle::new(11.5, 500.0).features("tnum");
 
 pub const CONTROL: f32 = 30.0;
 pub const LARGE_CONTROL: f32 = 34.0;
@@ -30,7 +31,7 @@ const POPUP_GAP: f32 = 4.0;
 const DIALOG_WIDTH: f32 = 380.0;
 const LIST_HEIGHT: f32 = 380.0;
 pub const LIST_FADE: f32 = 24.0;
-const METER: f32 = 3.0;
+const METER: f32 = 2.0;
 const LOUD: f32 = 0.9;
 const CLIPPING: f32 = 0.985;
 const DISABLED: f32 = 0.42;
@@ -187,7 +188,7 @@ impl<'a> Button<'a> {
             base = base.child(icon(glyph, size).color(ink).a11y_hidden());
         }
         if !self.only_icon {
-            let font = if large { STRONG } else { type_::LABEL };
+            let font = if large { STRONG } else { LABEL };
             base = base.child(text(self.label).font(font).color(ink).a11y_hidden());
         }
         if !self.keys.is_empty() {
@@ -381,12 +382,7 @@ pub fn segmented(
                     p.t.hover
                 })
                 .on_press(move |app: &mut Ngine| pick(app, index))
-                .child(
-                    text(choice.label)
-                        .font(type_::LABEL)
-                        .color(ink)
-                        .a11y_hidden(),
-                ),
+                .child(text(choice.label).font(LABEL).color(ink).a11y_hidden()),
         );
     }
     let mut control = el()
@@ -556,13 +552,11 @@ pub fn meter(p: &Paint, key: &str, label: &str, position: f32) -> El {
         .a11y_value(format!("{percent} %"))
         .w_full()
         .h(METER)
-        .radius(METER / 2.0)
-        .fill(p.t.text.alpha(0.06))
+        .fill(p.t.text.alpha(0.1))
         .child(
             el().key(format!("{key}-fill"))
                 .w_frac(shown)
                 .h(METER)
-                .radius(METER / 2.0)
                 .fill(colour.alpha(0.9))
                 .a11y_hidden(),
         )
@@ -589,7 +583,7 @@ pub fn amount_field(p: &Paint, app: &Ngine, layer: &mut Vec<El>, amount: Amount,
         .is_some_and(|draft| draft.problem(&app.settings).is_some());
     let popup = format!("{key}-presets");
     let open = app.popup == Some(Popup::Choices(popup.clone()));
-    let editor = text_input(&shown, type_::LABEL.features("tnum"))
+    let editor = text_input(&shown, LABEL.features("tnum"))
         .key(key)
         .label(amount.label())
         .single_line()
@@ -806,19 +800,13 @@ pub fn toggle(
 
 pub fn card(p: &Paint, key: &str, rows: Vec<El>) -> El {
     let last = rows.len().saturating_sub(1);
-    let mut card = col()
-        .key(key)
-        .padding(space::S1)
-        .fill(p.t.card)
-        .radius(radius::LG)
-        .border(p.hair, p.t.card_border);
+    let mut card = col().key(key);
     for (index, entry) in rows.into_iter().enumerate() {
         card = card.child(entry);
         if index < last {
             card = card.child(
                 el().key(format!("{key}-separator-{index}"))
                     .h(p.hair)
-                    .mx(space::S3)
                     .fill(p.t.separator)
                     .a11y_hidden(),
             );
@@ -1178,7 +1166,7 @@ pub fn select(
         .child(
             text(current)
                 .key(format!("{key}-current"))
-                .font(type_::LABEL)
+                .font(LABEL)
                 .color(p.t.text)
                 .truncate()
                 .grow(1.0)

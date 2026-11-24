@@ -1,4 +1,4 @@
-use rune::tok::{radius, space, type_};
+use rune::tok::{radius, space};
 use rune::{Align, Color, Cursor, El, Icon, PhysicalInput, col, el, icon, row, text};
 
 use super::capture::{microphone_select, system_sound_select, volume};
@@ -111,7 +111,7 @@ fn list(ui: &Ui<'_>, width: f32) -> El {
                 .child(icon(section_icon(section), 15.0).color(ink).a11y_hidden())
                 .child(
                     text(section_label(section))
-                        .font(type_::LABEL)
+                        .font(super::widgets::LABEL)
                         .color(ink)
                         .truncate()
                         .a11y_hidden(),
@@ -347,7 +347,7 @@ fn app_sound_row(p: &Paint, app_only: bool) -> El {
             key: "app-only",
             label: "When recording a window or an app",
             choices: vec![
-                Choice::new("its", "Its sound"),
+                Choice::new("its", "Only that app"),
                 Choice::new("all", "All sound"),
             ],
             selected: Some(usize::from(!app_only)),
@@ -496,7 +496,7 @@ fn replay(ui: &mut Ui<'_>) -> Vec<El> {
     let save = amount_row(
         ui,
         "save-length-row",
-        "Save the last",
+        "Custom save length",
         Amount::SaveLength,
         None,
     );
@@ -544,7 +544,7 @@ fn hotkey_face(p: &Paint, app: &Ngine, slot: usize, key: &str) -> El {
         if held.is_empty() {
             return text(WAITING_FOR_KEYS)
                 .key(format!("{key}-waiting"))
-                .font(type_::LABEL)
+                .font(super::widgets::LABEL)
                 .color(p.accent)
                 .a11y_hidden();
         }
@@ -555,13 +555,13 @@ fn hotkey_face(p: &Paint, app: &Ngine, slot: usize, key: &str) -> El {
         Some(caps) => keycaps(p, &format!("{key}-caps"), &caps).a11y_hidden(),
         None if !hotkeys::is_unset(accelerator) => text(written_alone(accelerator))
             .key(format!("{key}-written"))
-            .font(type_::LABEL)
+            .font(super::widgets::LABEL)
             .color(p.danger)
             .truncate()
             .a11y_hidden(),
         None => text(NOT_SET)
             .key(format!("{key}-unset"))
-            .font(type_::LABEL)
+            .font(super::widgets::LABEL)
             .color(p.faint)
             .a11y_hidden(),
     }
@@ -702,7 +702,7 @@ fn folder_row(p: &Paint, key: &str, label: &str, folder: Folder, path: &std::pat
         .child(
             text(shown)
                 .key(format!("{key}-value"))
-                .font(type_::LABEL)
+                .font(super::widgets::LABEL)
                 .color(p.t.text)
                 .truncate_middle()
                 .min_w(0.0)

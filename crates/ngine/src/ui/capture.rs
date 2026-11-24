@@ -185,7 +185,7 @@ fn source(ui: &mut Ui<'_>) -> El {
                     .font(if app.target.is_none() {
                         STRONG
                     } else {
-                        type_::LABEL
+                        super::widgets::LABEL
                     })
                     .color(action_ink)
                     .a11y_hidden(),
@@ -396,7 +396,7 @@ fn app_items(p: &Paint, app: &Ngine) -> Vec<El> {
             items.push(
                 text(window.detail.clone())
                     .key(format!("sources-app-{index}"))
-                    .font(type_::LABEL)
+                    .font(super::widgets::LABEL)
                     .color(p.t.text_secondary)
                     .truncate()
                     .px(space::S2)
@@ -998,7 +998,7 @@ fn recent(ui: &Ui<'_>) -> Option<El> {
                 .child(
                     text(entry.item.name.clone())
                         .key(format!("{key}-name"))
-                        .font(type_::LABEL)
+                        .font(super::widgets::LABEL)
                         .color(p.t.text)
                         .truncate()
                         .a11y_hidden(),

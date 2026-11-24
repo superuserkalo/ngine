@@ -451,7 +451,7 @@ fn exported(p: &Paint, body: El, file: &Path, length: Duration) -> El {
             .key("export-done")
             .help(name)
             .role("status")
-            .font(type_::LABEL)
+            .font(super::widgets::LABEL)
             .color(p.good)
             .wrap(),
     )
@@ -541,7 +541,7 @@ fn export(p: &Paint, app: &Ngine, editor: &Editor, width: f32) -> El {
                 ))
                 .key("export-failed")
                 .role("alert")
-                .font(type_::LABEL)
+                .font(super::widgets::LABEL)
                 .color(p.danger)
                 .wrap(),
             )
@@ -716,7 +716,7 @@ fn preview(p: &Paint, editor: &Editor, width: f32, height: f32) -> El {
             text(format!("The video cannot be shown: {failure}"))
                 .key("preview-failure")
                 .role("alert")
-                .font(type_::LABEL)
+                .font(super::widgets::LABEL)
                 .color(p.danger),
         );
     }
@@ -784,7 +784,12 @@ impl Layout {
             (ui.window.1 - ui.content_top(first_row) - header - BELOW_VIDEO).max(SMALLEST_VIDEO);
         let beside = if side_by_side { panel + space::S6 } else { 0.0 };
         let width = widest.min(tallest * aspect);
-        let video = (width, width / aspect);
+        let height = if side_by_side {
+            tallest.max(width / aspect)
+        } else {
+            width / aspect
+        };
+        let video = (width, height);
         ui.widen_to(video.0 + beside);
         Self {
             side_by_side,

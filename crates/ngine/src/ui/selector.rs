@@ -1,4 +1,4 @@
-use rune::tok::{radius, space, type_};
+use rune::tok::{radius, space};
 use rune::{
     Color, ConfiguredOverlay, Cursor, Cx, Drag, El, Key, KeyEvent, KeyPolicy, OverlayInput,
     OverlayLevel, OverlayOptions, OverlayPlacement, OverlaySpec, Phase, Tx, el, row, text,
@@ -374,7 +374,11 @@ fn button(paint: &Paint, key: &str, label: &str, primary: bool, press: fn(&mut S
         .on_press(press)
         .child(
             text(label)
-                .font(if primary { STRONG } else { type_::LABEL })
+                .font(if primary {
+                    STRONG
+                } else {
+                    super::widgets::LABEL
+                })
                 .color(ink)
                 .a11y_hidden(),
         )
@@ -395,7 +399,7 @@ fn bar(paint: &Paint, selector: &Selector, screen: (f32, f32), ratio: f32) -> El
         bar = bar.child(
             text(DRAG_HINT)
                 .key("selector-hint")
-                .font(type_::LABEL)
+                .font(super::widgets::LABEL)
                 .color(paint.t.text_secondary)
                 .px(space::S2),
         );
